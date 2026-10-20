@@ -1,0 +1,8 @@
+{
+  "name": "enterpriser-drive-maxx",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": { "start": "node server.mjs", "dev": "node --watch server.mjs", "test": "node --test tests/server.test.mjs" },
+  "engines": { "node": ">=20" }
+}
