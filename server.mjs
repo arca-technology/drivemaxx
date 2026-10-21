@@ -40,19 +40,19 @@ export function createApp(config, fetcher = fetch) {
     if (!session.refreshing) session.refreshing = tokenRequest({ grant_type: 'refresh_token', refresh_token: session.tokens.refresh_token }).then(data => saveTokens(session, data)).catch(error => { if (error.status === 401) session.tokens = null; throw error; }).finally(() => { session.refreshing = null; });
     await session.refreshing;
   }
-  async function olist(session, path) {
+  async function olist(session, path, company = false) {
     if (!session?.tokens) throw fault(401, 'Conecte sua conta Olist para consultar os produtos.');
     if (session.tokens.expiresAt < Date.now() + 30000) await refresh(session);
     const request = () => fetcher(`${API}${path}`, { headers: { Authorization: `Bearer ${session.tokens.access_token}`, Accept: 'application/json' }, signal: AbortSignal.timeout(30000) });
     let response;
     try { response = await request(); if (response.status === 401) { await refresh(session); response = await request(); } }
     catch (error) { if (error.status) throw error; throw fault(502, 'A Olist não respondeu. Tente atualizar a lista em instantes.'); }
-    if (response.status === 401) { session.tokens = null; throw fault(401, 'Sua sessão expirou. Conecte novamente.'); }
-    if (response.status === 403) throw fault(403, 'Acesso negado. Habilite a permissão de leitura de Produtos no aplicativo da Olist e autentique novamente.');
+    if (response.status === 401) { session.tokens = null; throw fault(401, `A Olist recusou o token no endpoint ${company ? '/info (dados da empresa)' : '/produtos'}, mesmo após renovação (HTTP 401).`); }
+    if (response.status === 403) throw fault(403, `Acesso negado pela Olist ao endpoint ${company ? '/info (dados da empresa)' : '/produtos'} (HTTP 403). Confira as permissões do aplicativo.`);
     if (response.status === 429) throw fault(429, 'Limite de consultas da Olist atingido. A lista será retomada automaticamente.', { retryAfter: Math.min(120, Math.max(5, Number(response.headers.get('retry-after')) || 30)) });
     const data = await response.json().catch(() => null);
     if (!response.ok) throw fault(502, 'Não foi possível consultar os produtos na Olist. Tente novamente.');
-    if (!data || !Array.isArray(data.itens)) throw fault(502, 'A Olist retornou uma lista de produtos em formato inesperado.');
+    if (!data || (company ? typeof data.razaoSocial !== 'string' : !Array.isArray(data.itens))) throw fault(502, 'A Olist retornou dados em formato inesperado.');
     return data;
   }
   return http.createServer(async (req, res) => {
@@ -77,7 +77,7 @@ export function createApp(config, fetcher = fetch) {
       if (req.method === 'GET' && url.pathname === '/auth/login') {
         if (!config.clientId || !config.clientSecret) throw fault(503, 'Configure OLIST_CLIENT_ID e OLIST_CLIENT_SECRET no servidor.');
         const sessionId = id(), state = id(), verifier = id();
-        sessions.set(sessionId, { state, verifier, authStarted: Date.now(), lastSeen: Date.now(), tokens: null });
+        sessions.set(sessionId, { state, verifier, returnTo: url.searchParams.get('next') === 'company' ? '/api/company' : '/?auth=success', authStarted: Date.now(), lastSeen: Date.now(), tokens: null });
         const target = new URL(AUTH);
         target.search = new URLSearchParams({ client_id: config.clientId, redirect_uri: config.redirectUri, scope: 'openid', response_type: 'code', state, code_challenge: createHash('sha256').update(verifier).digest('base64url'), code_challenge_method: 'S256' });
         return redirect(res, target.href, { 'Set-Cookie': cookie(sessionId) });
@@ -93,12 +93,15 @@ export function createApp(config, fetcher = fetch) {
           const tokens = await tokenRequest({ grant_type: 'authorization_code', code, redirect_uri: config.redirectUri, code_verifier: verifier });
           const nextSid = id(); sessions.delete(sid);
           const nextSession = { lastSeen: Date.now() }; saveTokens(nextSession, tokens); sessions.set(nextSid, nextSession);
-          return redirect(res, '/?auth=success', { 'Set-Cookie': cookie(nextSid) });
+          return redirect(res, session.returnTo === '/api/company' ? '/api/company' : '/?auth=success', { 'Set-Cookie': cookie(nextSid) });
         } catch { return redirect(res, '/?auth=failed'); }
       }
       if (req.method === 'POST' && url.pathname === '/auth/logout') {
         if (req.headers.origin !== origin) throw fault(403, 'Origem inválida.');
         sessions.delete(sid); return send(res, 200, { ok: true }, { 'Set-Cookie': cookie('', 0) });
+      }
+      if (req.method === 'GET' && url.pathname === '/api/company') {
+        return send(res, 200, await olist(session, '/info', true));
       }
       if (req.method === 'GET' && url.pathname === '/api/products') {
         const offset = Number(url.searchParams.get('offset') || 0), limit = Number(url.searchParams.get('limit') || 100);

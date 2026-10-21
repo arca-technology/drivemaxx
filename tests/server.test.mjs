@@ -126,6 +126,23 @@ test('HTTPS preview redirects localhost and uses a secure cookie on its canonica
   assert.equal((await get('/', { headers: { Host: 'untrusted.example' } })).status, 400);
 });
 
+test('company diagnostic uses /info and can run immediately after OAuth', async t => {
+  const { get } = await setup(t, async (url, options) => {
+    if (url.endsWith('/token')) return json({ access_token: 'private-token', expires_in: 3600 });
+    assert.equal(url, 'https://api.tiny.com.br/public-api/v3/info');
+    assert.equal(options.headers.Authorization, 'Bearer private-token');
+    return json({ razaoSocial: 'Empresa teste' });
+  });
+  assert.equal((await get('/api/company')).status, 401);
+  const start = await get('/auth/login?next=company');
+  const state = new URL(start.headers.get('location')).searchParams.get('state');
+  const callback = await get(`/auth/callback?code=test&state=${state}`, { headers: { Cookie: start.headers.get('set-cookie').split(';')[0] } });
+  assert.equal(callback.headers.get('location'), '/api/company');
+  const result = await get('/api/company', { headers: { Cookie: callback.headers.get('set-cookie').split(';')[0] } });
+  assert.equal(result.status, 200);
+  assert.deepEqual(await result.json(), { razaoSocial: 'Empresa teste' });
+});
+
 function cookieJar(response, previous = '') {
   const jar = new Map(previous.split('; ').filter(Boolean).map(s => s.split(/=(.*)/s).slice(0, 2)));
   for (const cookie of response.headers.getSetCookie()) {
