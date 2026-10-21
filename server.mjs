@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { randomBytes, createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { resolve, dirname } from 'node:path';
+import { cookieSessions } from './session.mjs';
 
 const root = dirname(fileURLToPath(import.meta.url));
 const AUTH = 'https://accounts.tiny.com.br/realms/tiny/protocol/openid-connect/auth';
@@ -12,7 +13,8 @@ const id = () => randomBytes(32).toString('base64url');
 const fault = (status, message, extra = {}) => Object.assign(new Error(message), { status, ...extra });
 
 export function createApp(config, fetcher = fetch) {
-  const sessions = new Map();
+  const localSessions = new Map();
+  if (config.serverless && !config.sessionSecret) throw new Error('SESSION_SECRET is required');
   const origin = new URL(config.redirectUri).origin;
   const secure = origin.startsWith('https:');
   const cookie = (value, age = 86400) => `drive_session=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${age}${secure ? '; Secure' : ''}`;
@@ -31,7 +33,7 @@ export function createApp(config, fetcher = fetch) {
     return data;
   }
   function saveTokens(session, data) {
-    session.tokens = { ...data, refresh_token: data.refresh_token || session.tokens?.refresh_token, expiresAt: Date.now() + Number(data.expires_in || 300) * 1000 };
+    session.tokens = { access_token: data.access_token, refresh_token: data.refresh_token || session.tokens?.refresh_token, expiresAt: Date.now() + Number(data.expires_in || 300) * 1000 };
   }
   async function refresh(session) {
     if (!session.tokens?.refresh_token) { session.tokens = null; throw fault(401, 'Sua sessão expirou. Conecte sua conta Olist novamente.'); }
@@ -54,6 +56,7 @@ export function createApp(config, fetcher = fetch) {
     return data;
   }
   return http.createServer(async (req, res) => {
+    const sessions = config.serverless ? cookieSessions(req, res, config.sessionSecret, secure) : localSessions;
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('Referrer-Policy', 'no-referrer');
     res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -63,23 +66,23 @@ export function createApp(config, fetcher = fetch) {
       const isLocal = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
       if (!isLocal && url.origin !== origin) throw fault(400, 'Host inválido.');
       const localHosts = [`localhost:${config.port}`, `127.0.0.1:${config.port}`];
-      if (req.headers.host && ![new URL(origin).host, ...localHosts].includes(req.headers.host)) throw fault(400, 'Host inválido.');
+      if (req.headers.host && ![new URL(origin).host, ...localHosts, ...(config.aliases || [])].includes(req.headers.host)) throw fault(400, 'Host inválido.');
       // Login and callback must use the same HTTPS hostname so the session cookie returns.
-      if (secure && localHosts.includes(req.headers.host)) return redirect(res, `${origin}${url.pathname}${url.search}`);
+      if (secure && req.headers.host !== new URL(origin).host) return redirect(res, `${origin}${url.pathname}${url.search}`);
       const sid = (req.headers.cookie || '').split(';').map(v => v.trim()).find(v => v.startsWith('drive_session='))?.slice('drive_session='.length);
       const session = sessions.get(sid);
       if (session) session.lastSeen = Date.now();
       for (const [key, value] of sessions) if (Date.now() - value.lastSeen > 86400000) sessions.delete(key);
       if (req.method === 'GET' && url.pathname === '/api/session') return send(res, 200, { authenticated: !!session?.tokens, redirectUri: config.redirectUri, configured: !!(config.clientId && config.clientSecret) });
       if (req.method === 'GET' && url.pathname === '/auth/login') {
-        if (!config.clientId || !config.clientSecret) throw fault(503, 'Preencha as credenciais no arquivo de configuração local.');
+        if (!config.clientId || !config.clientSecret) throw fault(503, 'Configure OLIST_CLIENT_ID e OLIST_CLIENT_SECRET no servidor.');
         const sessionId = id(), state = id(), verifier = id();
         sessions.set(sessionId, { state, verifier, authStarted: Date.now(), lastSeen: Date.now(), tokens: null });
         const target = new URL(AUTH);
         target.search = new URLSearchParams({ client_id: config.clientId, redirect_uri: config.redirectUri, scope: 'openid', response_type: 'code', state, code_challenge: createHash('sha256').update(verifier).digest('base64url'), code_challenge_method: 'S256' });
         return redirect(res, target.href, { 'Set-Cookie': cookie(sessionId) });
       }
-      if (req.method === 'GET' && url.pathname === '/auth/callback') {
+      if (req.method === 'GET' && (url.pathname === '/auth/callback' || (url.pathname === new URL(config.redirectUri).pathname && (url.searchParams.has('code') || url.searchParams.has('error'))))) {
         if (!session?.state || url.searchParams.get('state') !== session.state || Date.now() - session.authStarted > 600000) return redirect(res, '/?auth=invalid');
         const verifier = session.verifier;
         delete session.state; delete session.verifier;

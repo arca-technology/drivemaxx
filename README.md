@@ -18,6 +18,17 @@ Execute `npm test`. As chamadas à Olist nos testes são simuladas.
 
 ## Publicação na Vercel
 
-Este repositório contém a versão local. O servidor HTTP e as sessões em memória ainda precisam ser adaptados para execução na Vercel antes de publicar a integração funcional. Configure as credenciais como variáveis de ambiente do projeto, nunca em arquivos públicos. A URL de retorno OAuth precisa corresponder exatamente ao endereço cadastrado na Olist.
+O arquivo `vercel.json` encaminha `/auth/*`, `/api/*` e a página inicial para `api/index.mjs`. Os arquivos de interface ficam em `public`. O projeto deve usar a raiz do repositório e o preset Other.
+
+Configure no projeto Vercel, ambiente Production:
+
+- `OLIST_CLIENT_ID`: Client ID do aplicativo Olist.
+- `OLIST_CLIENT_SECRET`: Client Secret, como variável secreta.
+- `OLIST_REDIRECT_URI`: `https://app.drivemaxx.com.br/` (deve ser idêntica à URL cadastrada na Olist).
+- `SESSION_SECRET`: segredo aleatório de pelo menos 32 bytes, como variável secreta. Gere com `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`.
+
+Após configurar as variáveis, faça um Redeploy. Acesse o domínio `app.drivemaxx.com.br` para autenticar. O endereço `drivemaxx.vercel.app` encaminha para esse domínio antes do login. O callback funciona tanto na raiz cadastrada quanto em `/auth/callback`.
+
+Na Vercel, as sessões são cifradas com AES-256-GCM em cookies HttpOnly e Secure, permitindo o retorno OAuth e renovação dos tokens entre instâncias. Desconectar apaga os cookies deste navegador; não revoga tokens já emitidos pela Olist. Localmente, as sessões continuam em memória. As credenciais locais nunca são incluídas no deploy.
 
 Veja `README.txt` para os detalhes da execução local.

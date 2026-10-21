@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { createApp } from '../server.mjs';
 import { request } from 'node:http';
+import { randomBytes } from 'node:crypto';
 
 const config = () => ({ clientId: 'test-client', clientSecret: 'test-secret-never-public', redirectUri: 'http://localhost:3000/auth/callback', port: 3000 });
 const json = (body, status = 200, headers = {}) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', ...headers } });
@@ -123,4 +124,58 @@ test('HTTPS preview redirects localhost and uses a secure cookie on its canonica
   assert.match(login.headers.get('set-cookie'), /; Secure/);
   assert.equal((await get('/api/products', { headers: { Host: 'preview.example' } })).status, 401);
   assert.equal((await get('/', { headers: { Host: 'untrusted.example' } })).status, 400);
+});
+
+function cookieJar(response, previous = '') {
+  const jar = new Map(previous.split('; ').filter(Boolean).map(s => s.split(/=(.*)/s).slice(0, 2)));
+  for (const cookie of response.headers.getSetCookie()) {
+    const [name, value] = cookie.split(';')[0].split(/=(.*)/s);
+    if (cookie.includes('Max-Age=0')) jar.delete(name); else jar.set(name, value);
+  }
+  return [...jar].map(([k, v]) => `${k}=${v}`).join('; ');
+}
+
+test('serverless OAuth survives cold starts, refreshes, rejects tampering and clears cookies on logout', async t => {
+  const options = { serverless: true, sessionSecret: randomBytes(32).toString('hex'), redirectUri: 'http://localhost:3000/' };
+  const privateToken = randomBytes(2800).toString('base64url');
+  let exchanges = 0;
+  const upstream = async (url, request) => {
+    if (url.endsWith('/token')) {
+      exchanges++;
+      if (exchanges === 2) assert.equal(request.body.get('grant_type'), 'refresh_token');
+      return json({ access_token: privateToken, refresh_token: 'private-refresh', expires_in: exchanges === 1 ? 1 : 3600 });
+    }
+    assert.equal(request.headers.Authorization, `Bearer ${privateToken}`);
+    return json({ itens: [], paginacao: { total: 0 } });
+  };
+  const a = await setup(t, upstream, options);
+  const start = await a.get('/auth/login');
+  let jar = cookieJar(start);
+  const state = new URL(start.headers.get('location')).searchParams.get('state');
+  const b = await setup(t, upstream, options);
+  const callback = await b.get(`/?code=test-code&state=${state}`, { headers: { Cookie: jar } });
+  assert.equal(callback.headers.get('location'), '/?auth=success');
+  jar = cookieJar(callback, jar);
+  assert.ok(!jar.includes(privateToken));
+  assert.ok(jar.includes('drive_data1='), 'large sessions are split into cookies');
+  const c = await setup(t, upstream, options);
+  const products = await c.get('/api/products', { headers: { Cookie: jar } });
+  assert.equal(products.status, 200);
+  jar = cookieJar(products, jar);
+  const d = await setup(t, upstream, options);
+  assert.equal((await d.get('/api/products', { headers: { Cookie: jar } })).status, 200);
+  assert.equal(exchanges, 2, 'refresh result persists across instances');
+  const forged = jar.replace(/drive_data0=./, 'drive_data0=!');
+  assert.equal((await d.get('/api/products', { headers: { Cookie: forged } })).status, 401);
+  const logout = await d.get('/auth/logout', { method: 'POST', headers: { Cookie: jar, Origin: 'http://localhost:3000' } });
+  jar = cookieJar(logout, jar);
+  assert.equal(jar, '');
+  assert.equal((await c.get('/api/products', { headers: { Cookie: jar } })).status, 401);
+});
+
+test('Vercel alias redirects to the canonical OAuth domain', async t => {
+  const { get } = await setup(t, undefined, { redirectUri: 'https://app.drivemaxx.com.br/', aliases: ['drivemaxx.vercel.app'] });
+  const response = await get('/auth/login', { headers: { Host: 'drivemaxx.vercel.app' } });
+  assert.equal(response.status, 302);
+  assert.equal(response.headers.get('location'), 'https://app.drivemaxx.com.br/auth/login');
 });
