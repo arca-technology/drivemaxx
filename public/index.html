@@ -154,11 +154,25 @@
     </div>
   </dialog>
 
-  <dialog id="product-dialog" class="drawer modal" aria-labelledby="product-title">
-    <div class="modal-body">
-      <div class="modal-head"><h2 id="product-title"><span data-icon="box"></span> Produto</h2><button class="icon-button drawer-close" type="button" aria-label="Fechar" data-icon="close"></button></div>
-      <div id="product-body" class="modal-scroll product-detail"></div>
-      <div class="modal-foot"><span id="product-updated" class="bag-total"></span><button id="product-refresh" class="button" type="button" data-admin-only>Atualizar da Olist</button><button id="product-add" class="button primary" type="button" hidden><span data-icon="bag"></span> Adicionar à sacola</button><button class="button" type="button" value="cancel">Fechar</button></div>
+  <dialog id="product-dialog" class="drawer modal fullscreen" aria-labelledby="product-title">
+    <div class="pd">
+      <header class="pd-head">
+        <div class="pd-heading"><b id="product-pos"></b><h2 id="product-title">Produto</h2><span id="product-meta"></span></div>
+        <div class="pd-actions">
+          <button id="product-add" class="button bag-button" type="button" hidden><span data-icon="bag"></span> Adicionar à sacola</button>
+          <button id="product-refresh" class="pd-btn text" type="button" data-admin-only title="Buscar os dados mais recentes na Olist">ATUALIZAR</button>
+          <button id="product-prev" class="pd-btn" type="button" aria-label="Produto anterior" data-icon="left"></button>
+          <button id="product-next" class="pd-btn" type="button" aria-label="Próximo produto" data-icon="right"></button>
+          <button class="pd-btn drawer-close" type="button" aria-label="Fechar" data-icon="close"></button>
+        </div>
+      </header>
+      <div id="product-warning" class="detail-warning pd-warning" hidden></div>
+      <div class="pd-grid">
+        <section class="pd-card"><nav class="pd-tabs"><button type="button" data-left="media" class="active">MÍDIA</button><button type="button" data-left="desc">DESCRIÇÃO</button><button type="button" data-left="attrs">ATRIBUTOS</button></nav><div id="pd-left" class="pd-pane"></div></section>
+        <section class="pd-card"><nav class="pd-tabs"><button type="button" class="active">DADOS</button></nav><div id="pd-data" class="pd-pane"></div></section>
+        <section class="pd-card"><nav class="pd-tabs"><button type="button" class="active">VARIAÇÕES</button></nav><div id="pd-variations" class="pd-pane"></div></section>
+      </div>
+      <footer class="pd-foot"><span id="product-updated"></span></footer>
     </div>
   </dialog>
 

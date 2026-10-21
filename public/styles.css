@@ -227,4 +227,49 @@ html[data-theme=dark] .detail-warning{background:#3a2f12;color:#f5c66b}
 .skeleton{height:14px;border-radius:4px;background:linear-gradient(90deg,var(--head),var(--surface),var(--head));background-size:200% 100%;animation:shimmer 1.2s infinite}
 @keyframes shimmer{to{background-position:-200% 0}}
 @media(max-width:760px){.detail-grid{grid-template-columns:1fr 1fr}}
+/* ── Full-screen product panel (Analytrick style) ── */
+.drawer.modal.fullscreen{width:100vw}
+.pd{height:100%;display:flex;flex-direction:column;background:var(--bg)}
+.pd-head{display:flex;align-items:center;justify-content:space-between;gap:16px;min-height:56px;padding:0 16px 0 22px;border-bottom:1px solid var(--line)}
+.pd-heading{display:flex;align-items:baseline;gap:8px;min-width:0}
+.pd-heading b{color:var(--blue);font-size:13px}
+.pd-heading h2{margin:0;font-size:14px;font-weight:750;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pd-heading span{color:var(--muted);font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pd-actions{display:flex;align-items:center;gap:6px;flex-shrink:0}
+.pd-btn{height:30px;min-width:30px;display:inline-grid;place-items:center;padding:0 8px;border:1px solid var(--line);border-radius:6px;background:var(--surface);font-size:10px;font-weight:700;letter-spacing:.5px}
+.pd-btn:hover:not(:disabled){border-color:var(--blue);color:var(--blue)}
+.pd-btn svg{width:14px}
+.pd-warning{margin:10px 22px 0}
+.pd-grid{flex:1;min-height:0;display:grid;grid-template-columns:minmax(300px,30%) minmax(300px,30%) 1fr;gap:16px;padding:16px 22px}
+.pd-card{display:flex;flex-direction:column;min-height:0;border:1px solid var(--line);border-radius:10px;background:var(--surface);overflow:hidden}
+.pd-tabs{display:flex;border-bottom:1px solid var(--line);background:var(--raised)}
+.pd-tabs button{flex:1;height:38px;border:0;border-bottom:2px solid transparent;background:transparent;color:var(--muted);font-size:10px;font-weight:750;letter-spacing:.8px}
+.pd-tabs button.active{color:var(--blue);border-bottom-color:var(--blue)}
+.pd-pane{flex:1;min-height:0;overflow:auto;padding:14px}
+.pd-main{height:min(46vh,420px);display:grid;place-items:center;border-radius:8px;background:#fff;overflow:hidden;color:var(--muted)}
+.pd-main img{width:100%;height:100%;object-fit:contain;display:block}
+.pd-main svg{width:44px;height:44px}
+.pd-main span{font-size:11px}
+.pd-thumbs{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:10px}
+.pd-thumbs button,.pd-thumbs .empty{position:relative;aspect-ratio:1/1;border-radius:6px;overflow:hidden}
+.pd-thumbs button{padding:0;border:2px solid transparent;background:#fff}
+.pd-thumbs button.active{border-color:var(--blue)}
+.pd-thumbs button img{width:100%;height:100%;object-fit:cover}
+.pd-thumbs button b{position:absolute;top:3px;left:3px;width:16px;height:16px;display:grid;place-items:center;border-radius:50%;background:#111c;color:#fff;font-size:9px}
+.pd-thumbs .empty{display:grid;place-items:center;border:1px dashed var(--line);color:var(--muted);font-size:10px}
+.pd-text{margin:0;font-size:12px;line-height:1.75;white-space:pre-line}
+.pd-empty{margin:30px 0;text-align:center;color:var(--muted);font-size:11px}
+.pd-table{width:100%;min-width:0;border-collapse:collapse;table-layout:auto;font-size:11px}
+.pd-table th,.pd-table td{height:auto;padding:9px 10px;border:0;border-bottom:1px solid var(--line);background:transparent!important;white-space:normal;text-align:left}
+.pd-table th{position:static;color:var(--muted);font-size:9px;letter-spacing:.6px;text-transform:uppercase;font-weight:700;width:45%}
+.pd-table.data td{text-align:right;font-weight:600}
+.pd-table.data tr.accent td{color:var(--blue);font-size:15px}
+.pd-table .danger,.pd-table tr.danger td{color:#b74e42}
+.pd-table.vars th{width:auto}
+.pd-table.vars thead th{position:sticky;top:-14px;background:var(--surface)!important}
+.pd-table .numeric{text-align:right}
+.pd-table input[type=checkbox]{accent-color:var(--blue)}
+.pd-foot{display:flex;align-items:center;min-height:36px;padding:0 22px;border-top:1px solid var(--line);color:var(--muted);font-size:10px}
+@media(max-width:1100px){.pd-grid{grid-template-columns:1fr 1fr;overflow:auto}.pd-grid>.pd-card:last-child{grid-column:1/-1;min-height:280px}}
+@media(max-width:760px){.pd-grid{grid-template-columns:1fr}.pd-heading span{display:none}.pd-main{height:300px}}
 

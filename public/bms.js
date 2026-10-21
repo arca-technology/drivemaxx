@@ -276,8 +276,8 @@ document.addEventListener('error', event => {
   const holder = img.parentElement; img.remove(); if (!holder.querySelector('svg')) holder.insertAdjacentHTML('beforeend', icon('box'));
 }, true);
 
-// ── Product detail (fed from Olist on open, saved to the database) ──
-let detailId = null;
+// ── Product detail: full-screen panel (Analytrick style), fed from Olist on open and saved to the database ──
+let detailId = null, detailData = null, leftTab = 'media';
 const fmtDim = (v, unit) => v ? `${qty(v)} ${unit}` : null;
 function applyDetail(d) {
   const p = state.byId.get(d.id);
@@ -295,57 +295,117 @@ function applyDetail(d) {
   }
   render();
 }
+function detailList() { const ids = allViewIds(); return ids.length ? ids : state.products.map(p => p.id); }
 function renderDetail(d, loading = false) {
+  detailData = d;
   const p = state.byId.get(d.id) || {};
-  const images = d.imagens?.length ? d.imagens : (d.imagem || p.imagem ? [d.imagem || p.imagem] : []);
   const det = d.detalhes || {};
-  const dims = det.dimensoes || {};
-  const kids = kidsOf(d.id).map(id => state.byId.get(id));
   const admin = state.role === 'admin';
+  const list = detailList(), pos = list.indexOf(d.id);
+  $('product-pos').textContent = pos >= 0 ? `#${pos + 1}` : '';
+  $('product-title').textContent = d.descricao || p.descricao || 'Produto';
+  const kids = kidsOf(d.id).map(id => state.byId.get(id));
+  $('product-meta').textContent = [kids.length ? `${kids.length} variações` : '', d.sku || p.sku, det.marca, det.categoria].filter(Boolean).join(' · ');
+  $('product-prev').disabled = pos <= 0; $('product-next').disabled = pos < 0 || pos >= list.length - 1;
+  $('product-warning').hidden = !d.aviso; $('product-warning').textContent = d.aviso ? `Não foi possível atualizar pela Olist agora: ${d.aviso}. Mostrando os dados salvos.` : '';
+  $('product-updated').textContent = loading ? 'Buscando dados na Olist…' : d.atualizadoEm ? `Atualizado da Olist em ${dateTime(d.atualizadoEm)} · ← → navegam entre produtos` : '← → navegam entre produtos';
+  // Left: media / description / attributes
+  const images = d.imagens?.length ? d.imagens : (d.imagem || p.imagem ? [d.imagem || p.imagem] : []);
+  const dims = det.dimensoes || {};
+  const attrs = [['Marca', det.marca], ['Categoria', det.categoria], ['NCM', det.ncm], ['Origem', det.origem], ['Garantia', det.garantia], ['Unidade', d.unidade || p.unidade], ['GTIN / EAN', d.gtin || p.gtin], ['Largura', fmtDim(dims.largura, 'cm')], ['Altura', fmtDim(dims.altura, 'cm')], ['Comprimento', fmtDim(dims.comprimento, 'cm')], ['Peso bruto', fmtDim(dims.pesoBruto, 'kg')], ['Peso líquido', fmtDim(dims.pesoLiquido, 'kg')]].filter(([, v]) => v != null && v !== '');
+  document.querySelectorAll('#product-dialog [data-left]').forEach(b => b.classList.toggle('active', b.dataset.left === leftTab));
+  $('pd-left').innerHTML = leftTab === 'media'
+    ? `<div class="pd-main">${images[0] ? `<img src="${escape(images[0])}" alt="${escape(d.descricao || '')}" referrerpolicy="no-referrer">` : `${icon('box')}<span>Sem imagem</span>`}</div>
+       <div class="pd-thumbs">${Array.from({ length: 12 }, (_, i) => images[i] ? `<button type="button" class="${i ? '' : 'active'}" data-image="${escape(images[i])}"><b>${i + 1}</b><img src="${escape(images[i])}" alt="" loading="lazy" referrerpolicy="no-referrer"></button>` : `<span class="empty">${i + 1}</span>`).join('')}</div>`
+    : leftTab === 'desc'
+      ? (det.complemento ? `<p class="pd-text">${escape(det.complemento)}</p>` : `<p class="pd-empty">${loading ? 'Carregando…' : 'Sem descrição na Olist.'}</p>`)
+      : (attrs.length ? `<table class="pd-table">${attrs.map(([k, v]) => `<tr><th>${k}</th><td>${escape(v)}</td></tr>`).join('')}</table>` : `<p class="pd-empty">${loading ? 'Carregando…' : 'Sem atributos.'}</p>`);
+  // Middle: data
   const stock = stockOf(p.id ? p : { id: d.id });
-  const cells = [
-    ['Preço comprador', d.precoComprador != null ? money(d.precoComprador) : 'Sem preço', 'highlight'],
-    ['Estoque disponível', stock == null ? '—' : qty(stock)],
-    ['Unidade', d.unidade || p.unidade || '—'],
-    ...(admin && d.precos ? [['Preço de venda', money(d.precos.preco)], ['Custo', money(d.precos.precoCusto)], ['Custo médio', money(d.precos.precoCustoMedio)], ['Custo (ficha Olist)', money(d.precos.custoFicha)], ['Margem', d.margem == null ? `${qty(d.margemPadrao)}% (padrão)` : `${qty(d.margem)}%`], ['Visível ao comprador', d.visivel ? 'Sim' : 'Não']] : [])
+  // A parent is sold through its variations: show their price range and summed stock.
+  const kidPrices = kids.map(k => buyerPriceOf(k)).filter(v => v != null);
+  const priceLabel = kids.length ? (kidPrices.length ? (Math.min(...kidPrices) === Math.max(...kidPrices) ? money(kidPrices[0]) : `${money(Math.min(...kidPrices))} – ${money(Math.max(...kidPrices))}`) : 'Sem preço') : d.precoComprador != null ? money(d.precoComprador) : 'Sem preço';
+  const own = (field, fallback) => kids.length ? qty(stockOf(p, field)) : qty(fallback ?? stockOf(p, field));
+  const rows = [
+    [kids.length ? 'Preço comprador (variações)' : 'Preço comprador', priceLabel, 'accent'],
+    ['Estoque disponível', stock == null ? '—' : qty(stock), stock != null && stock <= 0 ? 'danger' : ''],
+    ...(admin ? [
+      ['Saldo em estoque', own('saldo', d.estoque?.saldo)], ['Reservado', own('reservado', d.estoque?.reservado)],
+      ['Preço de venda', money(d.precos?.preco ?? p.precos?.preco)], ['Preço promocional', money(d.precos?.precoPromocional ?? p.precos?.precoPromocional)],
+      ['Preço de custo', money(d.precos?.precoCusto ?? p.precos?.precoCusto)], ['Custo médio', money(d.precos?.precoCustoMedio ?? p.precos?.precoCustoMedio)], ['Custo (histórico Olist)', money(d.precos?.custoFicha ?? p.custoFicha)],
+      ['Margem %', `<input class="margin-input" type="number" step="0.01" data-margin="${d.id}" value="${settingOf({ id: d.id }).margin ?? ''}" placeholder="${escape(String(state.defaultMargin))}">`, 'raw'],
+      ['Visível ao comprador', `<button class="toggle${settingOf({ id: d.id }).visible ? ' on' : ''}" type="button" role="switch" aria-checked="${settingOf({ id: d.id }).visible}" data-visible="${d.id}"><i></i></button>`, 'raw']
+    ] : []),
+    ['SKU', d.sku || p.sku || '—'], ['GTIN / EAN', d.gtin || p.gtin || '—'], ['Unidade', d.unidade || p.unidade || '—'],
+    ['Situação', SITUATION[d.situacao || p.situacao] || '—'], ['Tipo', VARIATION[p.tipoVariacao] || '—'],
+    ...(state.parentOf.has(d.id) ? [['Grade', state.grade.get(d.id) || '—'], ['Produto pai', state.byId.get(state.parentOf.get(d.id))?.descricao || '—']] : []),
+    ...(admin ? [['ID Olist', String(d.id)]] : [])
   ];
-  const info = [['Marca', det.marca], ['Categoria', det.categoria], ['NCM', det.ncm], ['Garantia', det.garantia], ['Dimensões (L × A × C)', [dims.largura, dims.altura, dims.comprimento].some(Boolean) ? `${qty(dims.largura || 0)} × ${qty(dims.altura || 0)} × ${qty(dims.comprimento || 0)} cm` : null], ['Peso bruto', fmtDim(dims.pesoBruto, 'kg')], ['Peso líquido', fmtDim(dims.pesoLiquido, 'kg')]].filter(([, v]) => v);
-  $('product-body').innerHTML = `
-    ${d.aviso ? `<div class="detail-warning">Não foi possível atualizar pela Olist agora: ${escape(d.aviso)}. Mostrando os dados salvos.</div>` : ''}
-    <div class="gallery"><div class="gallery-main">${images[0] ? `<img src="${escape(images[0])}" alt="${escape(d.descricao || p.descricao || '')}" referrerpolicy="no-referrer">` : icon('box')}</div>
-      ${images.length > 1 ? `<div class="gallery-thumbs">${images.map((u, i) => `<button type="button" class="${i ? '' : 'active'}" data-image="${escape(u)}"><img src="${escape(u)}" alt="" loading="lazy" referrerpolicy="no-referrer"></button>`).join('')}</div>` : ''}</div>
-    <h3 class="detail-title">${escape(d.descricao || p.descricao || '')}</h3>
-    <div class="detail-chips">${[d.sku || p.sku ? `SKU ${d.sku || p.sku}` : '', d.gtin || p.gtin ? `GTIN ${d.gtin || p.gtin}` : '', state.grade.get(d.id) || '', SITUATION[d.situacao || p.situacao] || ''].filter(Boolean).map(t => `<span>${escape(t)}</span>`).join('')}</div>
-    ${loading ? '<div class="skeleton"></div><div class="skeleton"></div>' : `<div class="detail-grid">${cells.map(([l, v, cls]) => `<div class="${cls || ''}"><span>${l}</span><b>${escape(v)}</b></div>`).join('')}</div>`}
-    ${det.complemento ? `<section class="detail-section"><h3>Descrição</h3><p>${escape(det.complemento)}</p></section>` : ''}
-    ${info.length ? `<section class="detail-section"><h3>Informações</h3><dl class="detail-list">${info.map(([k, v]) => `<dt>${k}</dt><dd>${escape(v)}</dd>`).join('')}</dl></section>` : ''}
-    ${kids.length ? `<section class="detail-section"><h3>Variações (${kids.length})</h3><dl class="detail-list">${kids.map(k => `<dt>${escape(state.grade.get(k.id) || k.sku || k.id)}</dt><dd>${qty(stockOf(k))} em estoque${state.role === 'buyer' && k.precoComprador != null ? ` · ${money(k.precoComprador)}` : ''}</dd>`).join('')}</dl></section>` : ''}`;
-  $('product-updated').textContent = d.atualizadoEm ? `Atualizado da Olist em ${dateTime(d.atualizadoEm)}` : loading ? 'Buscando na Olist…' : '';
+  $('pd-data').innerHTML = `<table class="pd-table data">${rows.map(([k, v, cls]) => `<tr class="${cls || ''}"><th>${k}</th><td>${cls === 'raw' ? v : escape(v)}</td></tr>`).join('')}</table>`;
+  // Right: variations
+  $('pd-variations').innerHTML = kids.length
+    ? `<table class="pd-table vars"><thead><tr>${state.role === 'buyer' ? '<th></th>' : ''}<th>GRADE</th><th>SKU</th><th class="numeric">ESTOQUE</th><th class="numeric">PREÇO COMPRADOR</th></tr></thead><tbody>${kids.map(k => { const s = stockOf(k), price = buyerPriceOf(k); return `<tr data-variation="${k.id}">${state.role === 'buyer' ? `<td><input type="checkbox" data-pick="${k.id}"${state.selected.has(k.id) ? ' checked' : ''}${price == null ? ' disabled' : ''} aria-label="Selecionar ${escape(state.grade.get(k.id) || k.sku || '')}"></td>` : ''}<td><b>${escape(state.grade.get(k.id) || k.descricao)}</b></td><td class="mono">${escape(k.sku || '')}</td><td class="numeric${s != null && s <= 0 ? ' danger' : ''}">${qty(s)}</td><td class="numeric">${price != null ? money(price) : '—'}</td></tr>`; }).join('')}</tbody></table>`
+    : `<p class="pd-empty">${loading && p.tipoVariacao === 'P' ? 'Carregando variações…' : 'Produto sem variações.'}</p>`;
   $('product-add').hidden = state.role !== 'buyer';
-  $('product-add').disabled = loading || (d.precoComprador == null && !kids.some(k => k.precoComprador != null));
+  $('product-add').disabled = loading || (d.precoComprador == null && !kids.some(k => buyerPriceOf(k) != null));
 }
 async function openProduct(id, refresh = false) {
   detailId = id;
   const p = state.byId.get(id) || { id };
   renderDetail({ id, descricao: p.descricao, sku: p.sku, gtin: p.gtin, situacao: p.situacao, imagem: p.imagem, precoComprador: buyerPriceOf(p) }, true);
-  openDrawer($('product-dialog'));
+  if (!$('product-dialog').open) openDrawer($('product-dialog'));
   try {
     const d = await api(`/api/products/${id}/detail${refresh ? '?refresh=1' : ''}`);
     if (detailId !== id) return;
     applyDetail(d); renderDetail(d);
-  } catch (error) { if (detailId === id) $('product-body').insertAdjacentHTML('afterbegin', `<div class="detail-warning">${escape(error.message)}</div>`); }
+  } catch (error) { if (detailId === id) { $('product-warning').hidden = false; $('product-warning').textContent = error.message; } }
+}
+function stepProduct(delta) {
+  const list = detailList(), pos = list.indexOf(detailId);
+  const next = list[pos + delta];
+  if (next != null) openProduct(next);
 }
 $('rows').addEventListener('click', event => { const el = event.target.closest('[data-detail]'); if (el) openProduct(Number(el.dataset.detail)); });
-$('product-body').addEventListener('click', event => {
+$('product-prev').onclick = () => stepProduct(-1);
+$('product-next').onclick = () => stepProduct(1);
+document.addEventListener('keydown', event => {
+  if (!$('product-dialog').open || /INPUT|SELECT|TEXTAREA/.test(document.activeElement?.tagName || '')) return;
+  if (event.key === 'ArrowLeft') { event.preventDefault(); stepProduct(-1); }
+  if (event.key === 'ArrowRight') { event.preventDefault(); stepProduct(1); }
+});
+document.querySelectorAll('#product-dialog [data-left]').forEach(tab => { tab.onclick = () => { leftTab = tab.dataset.left; if (detailData) renderDetail(detailData); }; });
+$('pd-left').addEventListener('click', event => {
   const thumb = event.target.closest('[data-image]');
   if (!thumb) return;
-  $('product-body').querySelectorAll('[data-image]').forEach(b => b.classList.toggle('active', b === thumb));
-  $('product-body').querySelector('.gallery-main').innerHTML = `<img src="${escape(thumb.dataset.image)}" alt="" referrerpolicy="no-referrer">`;
+  $('pd-left').querySelectorAll('[data-image]').forEach(b => b.classList.toggle('active', b === thumb));
+  $('pd-left').querySelector('.pd-main').innerHTML = `<img src="${escape(thumb.dataset.image)}" alt="" referrerpolicy="no-referrer">`;
+});
+// Admin edits inside the panel reuse the same settings calls as the table.
+$('pd-data').addEventListener('click', async event => {
+  const toggle = event.target.closest('[data-visible]');
+  if (!toggle) return;
+  const id = Number(toggle.dataset.visible);
+  await saveSettings([id], { visible: !(state.settings.get(id)?.visible ?? true) });
+  if (detailData) renderDetail({ ...detailData, visivel: state.settings.get(id)?.visible });
+});
+$('pd-data').addEventListener('change', async event => {
+  const input = event.target.closest('[data-margin]');
+  if (!input) return;
+  const id = Number(input.dataset.margin);
+  await saveSettings([id], { margin: input.value === '' ? null : Number(input.value) });
+  if (detailData) renderDetail({ ...detailData, precoComprador: buyerPriceOf(state.byId.get(id) || {}) });
+});
+$('pd-variations').addEventListener('change', event => {
+  const box = event.target.closest('[data-pick]');
+  if (!box) return;
+  const id = Number(box.dataset.pick);
+  box.checked ? state.selected.add(id) : state.selected.delete(id);
+  render();
 });
 $('product-refresh').onclick = () => { if (detailId) openProduct(detailId, true); };
 $('product-add').onclick = () => {
-  const ids = kidsOf(detailId).length ? kidsOf(detailId) : [detailId];
+  const ids = kidsOf(detailId).length ? kidsOf(detailId).filter(id => buyerPriceOf(state.byId.get(id)) != null) : [detailId];
   ids.forEach(id => state.selected.add(id));
-  closeDrawer($('product-dialog')); render();
+  render(); if (detailData) renderDetail(detailData);
   notice(`${ids.length === 1 ? 'Produto adicionado' : `${ids.length} variações adicionadas`} à seleção. Clique em Sacola para informar as quantidades.`);
 };
