@@ -191,6 +191,9 @@ $('export').onclick = () => {
   const a = document.createElement('a'); a.href = url; a.download = `drive-maxx-produtos-${new Date().toISOString().slice(0, 10)}.csv`; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
 };
 function olistStatus(text, kind = '') {
+  $('olist-error').hidden = kind !== 'error';
+  $('olist-error').textContent = kind === 'error' ? text : '';
+  if (kind === 'error') text = 'Falha na conexão';
   const label = document.createElement('span'); label.textContent = text;
   $('olist-status').className = `integration-status ${kind}`.trim();
   $('olist-status').title = text;

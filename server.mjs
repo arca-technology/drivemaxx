@@ -40,6 +40,16 @@ export function createApp(config, fetcher = fetch) {
     if (!session.refreshing) session.refreshing = tokenRequest({ grant_type: 'refresh_token', refresh_token: session.tokens.refresh_token }).then(data => saveTokens(session, data)).catch(error => { if (error.status === 401) session.tokens = null; throw error; }).finally(() => { session.refreshing = null; });
     await session.refreshing;
   }
+  // Logs why Olist rejected a call. Never logs the token, only its public claims.
+  async function rejection(response, session, path) {
+    const body = (await response.text().catch(() => '')).slice(0, 500);
+    let claims = null;
+    try { const c = JSON.parse(Buffer.from(session.tokens.access_token.split('.')[1], 'base64url')); claims = { iss: c.iss, aud: c.aud, azp: c.azp, scope: c.scope, iat: c.iat && new Date(c.iat * 1000).toISOString(), exp: c.exp && new Date(c.exp * 1000).toISOString() }; } catch {}
+    console.warn('[olist] rejected', JSON.stringify({ path, status: response.status, wwwAuthenticate: response.headers.get('www-authenticate'), body, claims }));
+    let reason = '';
+    try { const d = JSON.parse(body); reason = d.mensagem || d.message || d.error_description || d.error || d.detalhes?.[0]?.mensagem || ''; } catch {}
+    return typeof reason === 'string' && reason ? `: ${reason.slice(0, 200)}` : '';
+  }
   async function olist(session, path, company = false) {
     if (!session?.tokens) throw fault(401, 'Conecte sua conta Olist para consultar os produtos.');
     if (session.tokens.expiresAt < Date.now() + 30000) await refresh(session);
@@ -48,8 +58,8 @@ export function createApp(config, fetcher = fetch) {
     try { response = await request(); if (response.status === 401) { await refresh(session); response = await request(); } }
     catch (error) { if (error.status) throw error; throw fault(502, 'A Olist não respondeu. Tente atualizar a lista em instantes.'); }
     // Keep the session: a 401 here can be endpoint permission, not an invalid login.
-    if (response.status === 401) throw fault(403, `A Olist recusou o token no endpoint ${company ? '/info (dados da empresa)' : '/produtos'}, mesmo após renovação (HTTP 401). Confira as permissões do aplicativo na Olist e autentique novamente.`);
-    if (response.status === 403) throw fault(403, `Acesso negado pela Olist ao endpoint ${company ? '/info (dados da empresa)' : '/produtos'} (HTTP 403). Confira as permissões do aplicativo.`);
+    if (response.status === 401) throw fault(403, `A Olist recusou o token no endpoint ${company ? '/info (dados da empresa)' : '/produtos'} (HTTP 401)${await rejection(response, session, path)}.`);
+    if (response.status === 403) throw fault(403, `Acesso negado pela Olist ao endpoint ${company ? '/info (dados da empresa)' : '/produtos'} (HTTP 403)${await rejection(response, session, path)}.`);
     if (response.status === 429) throw fault(429, 'Limite de consultas da Olist atingido. A lista será retomada automaticamente.', { retryAfter: Math.min(120, Math.max(5, Number(response.headers.get('retry-after')) || 30)) });
     const data = await response.json().catch(() => null);
     if (!response.ok) throw fault(502, 'Não foi possível consultar os produtos na Olist. Tente novamente.');
