@@ -4,6 +4,8 @@ import { randomBytes, createHash, createHmac, timingSafeEqual } from 'node:crypt
 import { fileURLToPath } from 'node:url';
 import { resolve, dirname } from 'node:path';
 import { cookieSessions } from './session.mjs';
+import { createStorage } from './storage.mjs';
+import { gunzipSync } from 'node:zlib';
 
 const root = dirname(fileURLToPath(import.meta.url));
 const AUTH = 'https://accounts.tiny.com.br/realms/tiny/protocol/openid-connect/auth';
@@ -34,11 +36,17 @@ export function createApp(config, fetcher = fetch) {
     if (!payload || !signature || !same(signature, sign(payload))) return null;
     try { const data = JSON.parse(Buffer.from(payload, 'base64url')); return data.exp > Date.now() ? data.u : null; } catch { return null; }
   }
-  async function readJson(req) {
-    let body = '';
-    for await (const chunk of req) { body += chunk; if (body.length > 4096) throw fault(413, 'Requisição muito grande.'); }
+  async function readRaw(req, limit) {
+    const chunks = []; let size = 0;
+    for await (const chunk of req) { size += chunk.length; if (size > limit) throw fault(413, 'Requisição muito grande.'); chunks.push(chunk); }
+    return Buffer.concat(chunks);
+  }
+  async function readJson(req, limit = 4096) {
+    const body = (await readRaw(req, limit)).toString('utf8');
     try { return JSON.parse(body || '{}'); } catch { throw fault(400, 'Requisição inválida.'); }
   }
+  const storage = config.storage || createStorage({ secret: config.sessionSecret || config.clientSecret, blobToken: config.blobToken, dir: config.cacheDir });
+  const DATE = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/;
   const idList = value => {
     const ids = String(value || '').split(',').filter(Boolean).map(Number);
     if (!ids.length || ids.length > 20 || !ids.every(n => Number.isSafeInteger(n) && n > 0)) throw fault(400, 'Lista de produtos inválida.');
@@ -125,6 +133,27 @@ export function createApp(config, fetcher = fetch) {
       const session = sessions.get(sid);
       if (session) session.lastSeen = Date.now();
       for (const [key, value] of sessions) if (Date.now() - value.lastSeen > 86400000) sessions.delete(key);
+      // Olist webhook (stock movements). Authenticated by a secret token in the URL, not by the app login.
+      if (url.pathname === '/api/webhooks/estoque') {
+        if (req.method !== 'POST') throw fault(405, 'Método não permitido.');
+        if (!config.webhookSecret) throw fault(503, 'Webhook não configurado.');
+        if (!same(url.searchParams.get('token') || '', config.webhookSecret)) throw fault(401, 'Token inválido.');
+        const raw = await readRaw(req, 2 * 1024 * 1024);
+        let payload = {};
+        try { payload = JSON.parse(raw.toString('utf8') || '{}'); } catch { try { payload = Object.fromEntries(new URLSearchParams(raw.toString('utf8'))); if (typeof payload.dados === 'string') payload.dados = JSON.parse(payload.dados); } catch { payload = {}; } }
+        const items = [];
+        const collect = node => {
+          if (Array.isArray(node)) return node.forEach(collect);
+          if (!node || typeof node !== 'object') return;
+          const pid = Number(node.idProduto ?? node.id_produto ?? node.id);
+          if (Number.isSafeInteger(pid) && pid > 0 && ('saldo' in node || 'sku' in node || 'idProduto' in node)) items.push({ id: pid, saldo: node.saldo ?? null });
+          Object.values(node).forEach(value => { if (value && typeof value === 'object') collect(value); });
+        };
+        collect(payload);
+        console.log('[webhook] estoque', JSON.stringify({ keys: Object.keys(payload).slice(0, 10), produtos: items.length }));
+        if (items.length) await storage.put(`events/${Date.now()}-${randomBytes(6).toString('hex')}.bin`, { receivedAt: new Date().toISOString(), items: items.slice(0, 5000) });
+        return send(res, 200, { status: 'processado' });
+      }
       const user = gate ? appUser(req) : 'local';
       if (req.method === 'POST' && url.pathname === '/auth/app-login') {
         if (req.headers.origin !== origin) throw fault(403, 'Origem inválida.');
@@ -180,9 +209,34 @@ export function createApp(config, fetcher = fetch) {
       if (req.method === 'GET' && url.pathname === '/api/products') {
         const offset = Number(url.searchParams.get('offset') || 0), limit = Number(url.searchParams.get('limit') || 100);
         if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw fault(400, 'Paginação inválida.');
-        const situacao = url.searchParams.get('situacao');
+        const situacao = url.searchParams.get('situacao'), dataAlteracao = url.searchParams.get('dataAlteracao');
         if (situacao && !['A', 'I', 'E'].includes(situacao)) throw fault(400, 'Situação inválida.');
-        return send(res, 200, await olist(session, `/produtos?${new URLSearchParams({ limit, offset, ...(situacao ? { situacao } : {}) })}`, '/produtos', data => Array.isArray(data.itens)));
+        if (dataAlteracao && !DATE.test(dataAlteracao)) throw fault(400, 'Data inválida.');
+        return send(res, 200, await olist(session, `/produtos?${new URLSearchParams({ limit, offset, ...(situacao ? { situacao } : {}), ...(dataAlteracao ? { dataAlteracao } : {}) })}`, '/produtos', data => Array.isArray(data.itens)));
+      }
+      // Catalog cache (encrypted in storage) plus pending webhook events.
+      if (req.method === 'GET' && url.pathname === '/api/cache') {
+        const [catalog, names] = await Promise.all([storage.get('catalog.bin'), storage.list('events/')]);
+        const events = [];
+        for (const name of names.slice(0, 300)) { const event = await storage.get(name); if (event) events.push({ key: name, ids: event.items.map(i => i.id) }); }
+        return send(res, 200, { catalog, events, storage: storage.kind });
+      }
+      if (req.method === 'PUT' && url.pathname === '/api/cache') {
+        if (req.headers.origin && req.headers.origin !== origin) throw fault(403, 'Origem inválida.');
+        let body = await readRaw(req, 4 * 1024 * 1024);
+        if (req.headers['x-body-encoding'] === 'gzip') { try { body = gunzipSync(body, { maxOutputLength: 150 * 1024 * 1024 }); } catch { throw fault(400, 'Cache inválido.'); } }
+        let data;
+        try { data = JSON.parse(body.toString('utf8')); } catch { throw fault(400, 'Cache inválido.'); }
+        if (!data.catalog || !Array.isArray(data.catalog.products)) throw fault(400, 'Cache inválido.');
+        await storage.put('catalog.bin', { ...data.catalog, savedAt: new Date().toISOString() });
+        const consumed = (Array.isArray(data.consumed) ? data.consumed : []).filter(name => typeof name === 'string' && /^events\/[\w.-]+$/.test(name));
+        await storage.remove(consumed);
+        return send(res, 200, { ok: true, removed: consumed.length });
+      }
+      if (req.method === 'DELETE' && url.pathname === '/api/cache') {
+        if (req.headers.origin !== origin) throw fault(403, 'Origem inválida.');
+        await storage.remove(['catalog.bin', ...await storage.list('events/')]);
+        return send(res, 200, { ok: true });
       }
       // Stock for the whole catalog in pages of 100 (one call per page, not per product).
       if (req.method === 'GET' && url.pathname === '/api/stock-list') {
@@ -210,6 +264,6 @@ export function createApp(config, fetcher = fetch) {
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const local = await readFile(resolve(root, 'config.local.json'), 'utf8').then(JSON.parse).catch(() => ({}));
   const port = Number(process.env.PORT || local.port || 3000);
-  const config = { appUser: process.env.APP_USERNAME || local.appUser, appPassword: process.env.APP_PASSWORD || local.appPassword, clientId: process.env.OLIST_CLIENT_ID || local.clientId, clientSecret: process.env.OLIST_CLIENT_SECRET || local.clientSecret, redirectUri: process.env.OLIST_REDIRECT_URI || local.redirectUri || `http://localhost:${port}/auth/callback`, port };
+  const config = { cacheDir: resolve(root, '.local/cache'), webhookSecret: process.env.WEBHOOK_SECRET || local.webhookSecret, appUser: process.env.APP_USERNAME || local.appUser, appPassword: process.env.APP_PASSWORD || local.appPassword, clientId: process.env.OLIST_CLIENT_ID || local.clientId, clientSecret: process.env.OLIST_CLIENT_SECRET || local.clientSecret, redirectUri: process.env.OLIST_REDIRECT_URI || local.redirectUri || `http://localhost:${port}/auth/callback`, port };
   createApp(config).listen(port, '127.0.0.1', () => console.log(`DRIVE MAXX disponível em http://localhost:${port}\nRetorno OAuth: ${config.redirectUri}`));
 }

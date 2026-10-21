@@ -259,3 +259,32 @@ test('products accept active-only filter and stock list maps Olist pages', async
   assert.deepEqual(stock.itens, [{ id: 5, saldo: 4, reservado: 1, disponivel: 3 }]);
   assert.equal(stock.paginacao.total, 1);
 });
+test('stock webhook requires the secret token and queues events for the cache', async t => {
+  const { get } = await setup(t, async () => json({ access_token: 'secret', expires_in: 3600 }), { webhookSecret: 'hook-secret', appUser: 'u', appPassword: 'p' });
+  const hook = (token, body) => get(`/api/webhooks/estoque?token=${token}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  assert.equal((await hook('wrong', {})).status, 401);
+  const payload = { tipo: 'atualizacao_estoque', dados: '01/01/2026 10:00:00', produtos: [{ id: 11, sku: 'A', saldo: 5, saldo_anterior: 7, deposito_id: 3 }, { id: 12, sku: 'B', saldo: 0 }] };
+  const ok = await hook('hook-secret', payload);
+  assert.equal(ok.status, 200);
+  assert.deepEqual(await ok.json(), { status: 'processado' });
+  const app = (await get('/auth/app-login', { method: 'POST', headers: { Origin: 'http://localhost:3000' }, body: JSON.stringify({ username: 'u', password: 'p' }) })).headers.get('set-cookie').split(';')[0];
+  assert.equal((await get('/api/cache')).status, 401);
+  const cache = await (await get('/api/cache', { headers: { Cookie: app } })).json();
+  assert.equal(cache.catalog, null);
+  assert.equal(cache.events.length, 1);
+  assert.deepEqual(cache.events[0].ids, [11, 12]);
+});
+test('catalog cache round-trips gzip bodies and removes consumed events', async t => {
+  const { gzipSync } = await import('node:zlib');
+  const { get } = await setup(t, async () => json({ access_token: 'secret', expires_in: 3600 }), { webhookSecret: 'k' });
+  await get('/api/webhooks/estoque?token=k', { method: 'POST', body: JSON.stringify({ produtos: [{ id: 1, saldo: 2 }] }) });
+  const before = await (await get('/api/cache')).json();
+  const catalog = { v: 1, products: [{ id: 1, descricao: 'Teste' }], stock: [[1, { disponivel: 2 }]] };
+  const put = await get('/api/cache', { method: 'PUT', headers: { 'X-Body-Encoding': 'gzip', 'Content-Type': 'application/octet-stream' }, body: gzipSync(JSON.stringify({ catalog, consumed: before.events.map(e => e.key) })) });
+  assert.equal(put.status, 200);
+  const after = await (await get('/api/cache')).json();
+  assert.deepEqual(after.catalog.products, catalog.products);
+  assert.ok(after.catalog.savedAt);
+  assert.equal(after.events.length, 0);
+  assert.equal((await get('/api/cache', { method: 'PUT', body: '{"catalog":{}}' })).status, 400);
+});

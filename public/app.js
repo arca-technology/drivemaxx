@@ -392,11 +392,13 @@ function resetCatalog() {
   state.products = []; state.byId = new Map(); state.total = 0; state.complete = false; state.page = 1;
   state.stock = new Map(); state.children = new Map(); state.parentOf = new Map(); state.grade = new Map();
   state.variationsDone = new Set(); state.stockDone = new Set(); state.selected.clear(); state.expanded.clear(); state.enrichNote = ''; state.stockPages = null;
+  state.stockComplete = false; state.syncedAt = null;
 }
 async function loadProducts() {
   if (!state.authenticated || state.loading) return;
   const generation = ++state.generation;
   state.loading = true; resetCatalog();
+  const importStartedAt = olistNow();
   $('refresh').disabled = true; $('refresh').classList.add('spinning'); notice(''); render();
   let offset = 0, retries = 0;
   try {
@@ -435,7 +437,7 @@ async function loadProducts() {
   } finally {
     if (generation === state.generation) {
       state.loading = false; $('refresh').disabled = !state.authenticated; $('refresh').classList.remove('spinning'); render();
-      if (state.complete && store.get('drive-auto-enrich', true)) runEnrichment(generation);
+      if (state.complete) { state.syncedAt = importStartedAt; if (store.get('drive-auto-enrich', true)) runEnrichment(generation, true); else saveCache(); }
     }
   }
 }
@@ -491,16 +493,21 @@ async function stockListPass(generation) {
     if (!data.itens.length || offset >= state.stockPages.total) break;
     await sleep(400);
   }
-  if (generation === state.generation) { state.products.forEach(p => state.stockDone.add(p.id)); state.stockPages = null; }
+  if (generation === state.generation) { state.products.forEach(p => state.stockDone.add(p.id)); state.stockPages = null; state.stockComplete = true; }
   return true;
 }
-async function runEnrichment(generation) {
-  if (state.enriching) return;
+async function runEnrichment(generation, full = false) {
+  while (state.enriching) { await sleep(200); if (generation !== state.generation) return; }
   state.enriching = true; render();
   try {
-    const listed = await stockListPass(generation);
+    const listed = full ? await stockListPass(generation) : false;
     for (const phase of listed ? ['variations'] : ['variations', 'stock']) {
       while (generation === state.generation && await enrichStep(generation, phase)) await new Promise(done => { wake = done; setTimeout(done, 350); });
+    }
+    if (generation === state.generation) {
+      if (!full || !listed) state.stockComplete = state.products.every(p => state.stockDone.has(p.id) || kidsOf(p.id).length);
+      // A full import already reflects every pending webhook event.
+      if (full) await saveCache(cache.events.map(e => e.key));
     }
   } catch (error) {
     if (generation === state.generation) {
@@ -516,9 +523,88 @@ function renderEnrichLabel() {
   if (state.complete && parents) parts.push(`Variações ${number(state.variationsDone.size)}/${number(parents)}`);
   if (state.stockPages) parts.push(`Estoque ${number(state.stockPages.done)}/${number(state.stockPages.total)}`);
   else if (state.complete && stockTarget) parts.push(`Estoque ${number(Math.min(state.stockDone.size, stockTarget))}/${number(stockTarget)}`);
+  if (state.syncing) parts.push('Sincronizando alterações da Olist…');
+  else if (state.savedAt) parts.push(`Cache salvo às ${new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit' }).format(state.savedAt)}${state.lastChanges != null ? ` · ${number(state.lastChanges)} alterações aplicadas` : ''}`);
+  if (cache.events.length && !state.syncing) parts.push(`${number(cache.events.length)} avisos de estoque pendentes`);
+  if (cache.storage === 'memory') parts.push('Cache desativado (configure o Vercel Blob)');
   if (state.enrichNote) parts.push(state.enrichNote);
   $('enrich-label').textContent = parts.join(' · ');
-  $('enrich-label').classList.toggle('busy', state.enriching);
+  $('enrich-label').classList.toggle('busy', state.enriching || !!state.syncing);
+}
+
+// ── Cache (Vercel Blob) and incremental sync ─────────────────
+const cache = { events: [], storage: '' };
+function olistNow(minusMinutes = 0) {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-GB', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }).formatToParts(new Date(Date.now() - minusMinutes * 60000)).map(p => [p.type, p.value]));
+  return `${parts.year}-${parts.month}-${parts.day} ${parts.hour === '24' ? '00' : parts.hour}:${parts.minute}:${parts.second}`;
+}
+function hydrate(c) {
+  resetCatalog();
+  for (const p of c.products) if (p && !state.byId.has(p.id)) { state.byId.set(p.id, p); state.products.push(p); }
+  state.stock = new Map(c.stock || []);
+  state.children = new Map(c.children || []);
+  state.children.forEach((kids, pid) => kids.forEach(k => state.parentOf.set(k, pid)));
+  state.grade = new Map(c.grade || []);
+  state.variationsDone = new Set(c.variationsDone || []);
+  state.stockComplete = !!c.stockComplete;
+  (state.stockComplete ? state.products.map(p => p.id) : [...state.stock.keys()]).forEach(id => state.stockDone.add(id));
+  state.total = state.products.length; state.complete = true; state.syncedAt = c.syncedAt || null;
+}
+function removeProduct(id) {
+  state.byId.delete(id); state.products = state.products.filter(p => p.id !== id);
+  state.stock.delete(id); state.stockDone.delete(id); state.selected.delete(id); state.grade.delete(id);
+  (state.children.get(id) || []).forEach(k => state.parentOf.delete(k));
+  state.children.delete(id); state.parentOf.delete(id);
+}
+async function saveCache(consumed = []) {
+  if (!state.complete || !state.products.length || cache.storage === 'memory') return;
+  const catalog = { v: 1, onlyActive: store.get('drive-only-active', true), syncedAt: state.syncedAt, stockComplete: !!state.stockComplete, products: state.products, stock: [...state.stock], children: [...state.children], grade: [...state.grade], variationsDone: [...state.variationsDone] };
+  const json = JSON.stringify({ catalog, consumed });
+  let body = json, headers = { 'Content-Type': 'application/json' };
+  if ('CompressionStream' in window) {
+    body = await new Response(new Blob([json]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer();
+    headers = { 'Content-Type': 'application/octet-stream', 'X-Body-Encoding': 'gzip' };
+  }
+  try {
+    await api('/api/cache', { method: 'PUT', headers, body });
+    cache.events = cache.events.filter(e => !consumed.includes(e.key));
+    state.savedAt = new Date(); render();
+  } catch (error) { state.enrichNote = `Não foi possível salvar o cache: ${error.message}`; render(); }
+}
+// Applies what changed in Olist since the last sync, plus products flagged by the stock webhook.
+async function syncIncremental() {
+  if (!state.authenticated || !state.syncedAt || state.loading || state.enriching) return;
+  const generation = ++state.generation, startedAt = olistNow();
+  const consumed = cache.events.map(e => e.key);
+  state.syncing = true; render();
+  try {
+    const changed = [];
+    let offset = 0;
+    while (generation === state.generation) {
+      let data;
+      try { data = await api(`/api/products?limit=100&offset=${offset}&dataAlteracao=${encodeURIComponent(state.syncedAt)}`); }
+      catch (error) { if (error.status === 429) { await sleep((error.retryAfter || 30) * 1000); continue; } throw error; }
+      changed.push(...data.itens); offset += data.itens.length;
+      if (!data.itens.length || offset >= Number(data.paginacao?.total ?? 0)) break;
+      await sleep(800);
+    }
+    if (generation !== state.generation) return;
+    const onlyActive = store.get('drive-only-active', true);
+    for (const p of changed) {
+      if (onlyActive && p.situacao !== 'A') { removeProduct(p.id); continue; }
+      if (state.byId.has(p.id)) state.products[state.products.findIndex(x => x.id === p.id)] = p; else state.products.push(p);
+      state.byId.set(p.id, p); state.stockDone.delete(p.id);
+      if (p.tipoVariacao === 'P') state.variationsDone.delete(p.id);
+    }
+    cache.events.forEach(e => e.ids.forEach(id => state.stockDone.delete(id)));
+    state.total = state.products.length; state.lastChanges = changed.length + cache.events.reduce((n, e) => n + e.ids.length, 0);
+    render();
+    state.syncing = false;
+    await runEnrichment(generation);
+    if (generation === state.generation) { state.syncedAt = startedAt; await saveCache(consumed); }
+  } catch (error) {
+    if (generation === state.generation) { if (error.status === 401) connection(false); state.enrichNote = `Sincronização interrompida: ${error.message}`; }
+  } finally { state.syncing = false; if (generation === state.generation) render(); }
 }
 
 // ── Toolbar, pagination, keyboard ────────────────────────────
@@ -626,13 +712,22 @@ async function init() {
     history.replaceState(null, '', '/');
   }
   try {
-    const [data, me] = await Promise.all([api('/api/session'), api('/api/me').catch(() => ({}))]);
+    const [data, me, saved] = await Promise.all([api('/api/session'), api('/api/me').catch(() => ({})), api('/api/cache').catch(() => null)]);
+    if (saved) {
+      cache.storage = saved.storage; cache.events = saved.events || [];
+      if (saved.catalog?.products?.length) {
+        hydrate(saved.catalog);
+        state.savedAt = saved.catalog.savedAt ? new Date(saved.catalog.savedAt) : null;
+        $('footer-label').textContent = `${number(state.products.length)} produtos do cache · Olist ERP`;
+      }
+    }
     $('app-user').textContent = me.user || '—';
     $('app-logout').hidden = $('settings-logout').hidden = !me.gate;
     $('callback').textContent = data.redirectUri;
     connection(data.authenticated);
     if (!data.configured) { $('connect').hidden = true; notice('As credenciais Olist ainda não foram configuradas no servidor.', true); }
     render();
+    if (state.complete && data.authenticated) syncIncremental();
   } catch (error) { if (error.message !== 'Sessão encerrada.') notice('Não foi possível conectar ao servidor. Verifique a conexão e recarregue a página.', true); }
 }
 render();

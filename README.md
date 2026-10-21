@@ -28,6 +28,8 @@ Configure no projeto Vercel, ambiente Production:
 - `OLIST_CLIENT_SECRET`: Client Secret, como variável secreta.
 - `OLIST_REDIRECT_URI`: `https://app.drivemaxx.com.br/` (deve ser idêntica à URL cadastrada na Olist).
 - `APP_USERNAME` e `APP_PASSWORD` (Sensitive): usuário e senha de acesso ao app. Sem elas, o app fica bloqueado.
+- `WEBHOOK_SECRET` (Sensitive): token do webhook de estoque da Olist. URL a cadastrar em Configurações → Webhooks → lançamentos de estoque: `https://app.drivemaxx.com.br/api/webhooks/estoque?token=<WEBHOOK_SECRET>`.
+- `BLOB_READ_WRITE_TOKEN`: criada ao conectar um Vercel Blob privado ao projeto. Guarda o cache do catálogo e os avisos do webhook, compactados e cifrados.
 - `SESSION_SECRET`: segredo aleatório de pelo menos 32 bytes, como variável secreta. Gere com `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`.
 
 Após configurar as variáveis, faça um Redeploy. Acesse o domínio `app.drivemaxx.com.br` para autenticar. O endereço `drivemaxx.vercel.app` encaminha para esse domínio antes do login. O callback funciona tanto na raiz cadastrada quanto em `/auth/callback`.

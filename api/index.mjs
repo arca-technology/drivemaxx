@@ -10,6 +10,8 @@ export default function handler(req, res) {
   }
   app ||= createApp({
     appUser: process.env.APP_USERNAME,
+    webhookSecret: process.env.WEBHOOK_SECRET,
+    blobToken: process.env.BLOB_READ_WRITE_TOKEN,
     appPassword: process.env.APP_PASSWORD,
     clientId: process.env.OLIST_CLIENT_ID,
     clientSecret: process.env.OLIST_CLIENT_SECRET,
