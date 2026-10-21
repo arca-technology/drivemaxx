@@ -180,13 +180,7 @@
     <div class="ob">
       <aside class="ob-rail">
         <div class="ob-brand"><span class="ob-mark">D</span><span><b>DRIVE MAXX</b><small id="ob-tenant">Boas-vindas</small></span></div>
-        <ol class="ob-steps" id="ob-steps">
-          <li data-go="welcome">Boas-vindas</li>
-          <li data-go="modules">Conheça o sistema</li>
-          <li data-go="profile">Seus dados</li>
-          <li data-go="olist">Integração Olist</li>
-          <li data-go="done">Pronto</li>
-        </ol>
+        <ol class="ob-steps" id="ob-steps"></ol>
         <button class="ob-skip" type="button" id="ob-skip">Pular apresentação</button>
       </aside>
       <div class="ob-main">
@@ -195,13 +189,20 @@
           <section class="ob-step" data-step="welcome">
             <p class="ob-kicker">Primeiro acesso</p>
             <h1 id="ob-title">Olá, <span id="ob-name">—</span>.</h1>
-            <p class="ob-lead">Este é o seu portal de compras com <b id="ob-tenant-name">o fornecedor</b>. Em poucos passos mostramos como ele funciona, confirmamos seus dados e, se quiser, conectamos a sua conta Olist.</p>
+            <p class="ob-lead" data-role="buyer">Este é o seu portal de compras com <b id="ob-tenant-name">o fornecedor</b>. Em poucos passos mostramos como ele funciona, confirmamos seus dados e, se quiser, conectamos a sua conta Olist.</p>
+            <p class="ob-lead" data-role="admin">Este é o painel de administração do DRIVE MAXX. Em poucos passos mostramos os módulos, conferimos seus dados e a margem padrão, e garantimos que a conta Olist principal e o estoque em tempo real estejam funcionando.</p>
             <p class="ob-note">Leva cerca de 2 minutos. Você pode pular e voltar depois em Configurações.</p>
           </section>
           <section class="ob-step" data-step="modules" hidden>
             <p class="ob-kicker">Conheça o sistema</p>
             <h1>Tudo o que você precisa para comprar</h1>
-            <div class="ob-cards">
+            <div class="ob-cards" data-role="admin">
+              <article><span data-icon="box"></span><b>Produtos</b><p>Importa o catálogo ativo da sua Olist com estoque, variações, fotos e custos. Clique em um produto para ver os detalhes completos.</p></article>
+              <article><span data-icon="filter"></span><b>Visibilidade e margem</b><p>Escolha quais produtos os compradores veem e a margem de cada um. O preço do comprador é o custo acrescido da margem.</p></article>
+              <article><span data-icon="bag"></span><b>Pedidos</b><p>Os pedidos dos compradores chegam aqui e são criados automaticamente na sua Olist. Se a Olist recusar, você pode reenviar.</p></article>
+              <article><span data-icon="users"></span><b>Usuários</b><p>Cadastre compradores pelo CNPJ (os dados da empresa vêm automaticamente) e defina a senha inicial de cada um.</p></article>
+            </div>
+            <div class="ob-cards" data-role="buyer">
               <article><span data-icon="box"></span><b>Produtos</b><p>Catálogo com estoque disponível e o seu preço. Clique na foto ou no nome para ver detalhes, variações e grade.</p></article>
               <article><span data-icon="bag"></span><b>Sacola</b><p>Marque os produtos na primeira coluna e clique na sacola para informar as quantidades.</p></article>
               <article><span data-icon="table"></span><b>Meus pedidos</b><p>Ao salvar a sacola o pedido é enviado direto para o fornecedor. Acompanhe a situação de cada um aqui.</p></article>
@@ -211,13 +212,15 @@
           <form class="ob-step" data-step="profile" id="ob-profile" novalidate hidden>
             <p class="ob-kicker">Seus dados</p>
             <h1>Confirme seus dados</h1>
-            <p class="ob-lead">A empresa vem do cadastro feito pelo fornecedor. Revise seu nome e contatos.</p>
+            <p class="ob-lead" data-role="buyer">A empresa vem do cadastro feito pelo fornecedor. Revise seu nome e contatos.</p>
+            <p class="ob-lead" data-role="admin">Revise seu nome e a margem padrão aplicada aos produtos que não têm margem própria.</p>
             <div class="ob-company"><small>Empresa</small><b id="ob-legal">—</b><span id="ob-cnpj" class="mono">—</span></div>
             <div class="form-grid ob-grid">
               <label class="field"><span>Seu nome</span><input id="ob-user-name" maxlength="120" autocomplete="name" required></label>
               <label class="field"><span>Seu e-mail</span><input id="ob-user-email" type="email" maxlength="160" autocomplete="email"></label>
-              <label class="field"><span>Telefone da empresa</span><input id="ob-phone" maxlength="40" autocomplete="tel" inputmode="tel"></label>
-              <label class="field"><span>E-mail da empresa</span><input id="ob-company-email" type="email" maxlength="160"></label>
+              <label class="field" data-role="buyer"><span>Telefone da empresa</span><input id="ob-phone" maxlength="40" autocomplete="tel" inputmode="tel"></label>
+              <label class="field" data-role="buyer"><span>E-mail da empresa</span><input id="ob-company-email" type="email" maxlength="160"></label>
+              <label class="field" data-role="admin"><span>Margem padrão sobre o custo (%)</span><input id="ob-margin" type="number" step="0.01" min="-100" max="10000"></label>
             </div>
           </form>
           <section class="ob-step" data-step="olist" hidden>
@@ -237,7 +240,7 @@
               <li>Em outra aba, entre no seu <b>Olist ERP</b> e acesse <b>Configurações → Geral → Aplicativos</b>.</li>
               <li>Clique em <b>Criar aplicativo</b> e dê um nome, por exemplo <b>DRIVE MAXX</b>.</li>
               <li>Em <b>URL de redirecionamento</b>, cole exatamente este endereço:
-                <span class="ob-copy"><code id="ob-redirect">—</code><button type="button" class="button" id="ob-copy">Copiar</button></span></li>
+                <span class="ob-copy"><code id="ob-redirect">—</code><button type="button" class="button" data-copy="ob-redirect">Copiar</button></span></li>
               <li>Em <b>Permissões</b>, marque todos os itens com <b>leitura e escrita</b> (produtos, estoque, pedidos, contatos e dados da empresa).</li>
               <li>Clique em <b>Salvar</b>. A Olist mostrará o <b>Client ID</b> e o <b>Client Secret</b> do aplicativo.</li>
             </ol>
@@ -251,6 +254,25 @@
               <label class="field"><span>Client Secret</span><input id="ob-client-secret" type="password" maxlength="300" autocomplete="off" spellcheck="false"></label>
             </div>
           </form>
+          <section class="ob-step" data-step="master" hidden>
+            <p class="ob-kicker">Conta Olist principal</p>
+            <h1>Conecte a sua conta Olist</h1>
+            <p class="ob-lead">É dela que vêm os produtos, o estoque e os custos, e é nela que os pedidos dos compradores são criados.</p>
+            <div class="ob-status" id="ob-master-status"><i></i><span>Verificando…</span></div>
+            <p class="ob-note" id="ob-master-hint">Se a Olist recusar a conexão, confira no aplicativo da Olist se todas as permissões estão marcadas com leitura e escrita e se a URL de redirecionamento é <code id="ob-master-redirect">—</code>.</p>
+            <div class="ob-actions"><a class="button primary" id="ob-master-connect" href="/auth/login">Conectar Olist</a></div>
+          </section>
+          <section class="ob-step" data-step="webhook" hidden>
+            <p class="ob-kicker">Estoque em tempo real</p>
+            <h1>Cadastre o webhook de estoque</h1>
+            <p class="ob-lead">Com o webhook, cada movimentação de estoque na Olist atualiza o DRIVE MAXX na hora. Sem ele, o estoque é atualizado na próxima importação.</p>
+            <ol class="ob-howto">
+              <li>No Olist ERP, abra a configuração de <b>Webhooks</b>.</li>
+              <li>Cadastre esta URL para as notificações de <b>estoque</b>:
+                <span class="ob-copy"><code id="ob-webhook">—</code><button type="button" class="button" data-copy="ob-webhook">Copiar</button></span></li>
+              <li>Salve. Essa URL tem uma chave exclusiva da sua conta: não compartilhe.</li>
+            </ol>
+          </section>
           <section class="ob-step" data-step="done" hidden>
             <p class="ob-kicker">Pronto</p>
             <h1>Tudo certo!</h1>

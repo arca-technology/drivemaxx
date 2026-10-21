@@ -267,7 +267,7 @@ export function createApp(config, fetcher = fetch) {
         const customer = repo && who.customerId ? await repo.getCustomer(who.tenantId, who.customerId) : null;
         return send(res, 200, {
           user: who.username, name: who.name, email: me?.email || null, role: who.role, gate, database: !!repo, onboarded: !repo || !!me?.onboarded_at, redirectUri: config.redirectUri,
-          tenant: tenant ? { name: tenant.name, defaultMargin: Number(tenant.default_margin || 0), webhook: !!tenant.webhook_token } : null,
+          tenant: tenant ? { name: tenant.name, defaultMargin: Number(tenant.default_margin || 0), webhook: !!tenant.webhook_token, ...(who.role === 'admin' && tenant.webhook_token ? { webhookUrl: `${origin}/api/webhooks/estoque?token=${encodeURIComponent(tenant.webhook_token)}` } : {}) } : null,
           customer: customer ? { cnpj: customer.cnpj, legalName: customer.legal_name, tradeName: customer.trade_name, email: customer.email, phone: customer.phone, address: customer.address, olist: { configured: !!customer.olist_app, connected: !!customer.olist_tokens, company: customer.olist_company || null, connectedAt: customer.olist_connected_at || null } } : null
         });
       }

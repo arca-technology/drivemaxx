@@ -223,6 +223,10 @@ test('buyer onboarding: confirms profile, saves own Olist app, authenticates wit
   let me = (await call('/api/me', { cookie: buyer })).data;
   assert.equal(me.onboarded, false);
   assert.equal(me.customer.legalName, 'CLIENTE LTDA');
+  assert.equal(me.tenant.webhookUrl, undefined);
+  const adminMe = (await call('/api/me', { cookie: await loginAs('admin', 'senha-admin') })).data;
+  assert.equal(adminMe.onboarded, false);
+  assert.match(adminMe.tenant.webhookUrl, /\/api\/webhooks\/estoque\?token=hook$/);
   assert.deepEqual(me.customer.olist, { configured: false, connected: false, company: null, connectedAt: null });
 
   assert.equal((await call('/api/me', { method: 'PATCH', cookie: buyer, body: { name: 'João', email: 'x' } })).status, 400);
