@@ -15,7 +15,7 @@
       <button class="page-tab" type="button" data-view="users" hidden><span class="tab-icon" data-icon="users"></span><span>USUÁRIOS</span></button>
     </nav>
     <div class="header-actions">
-      <button id="integrations" data-admin-only class="icon-button" title="Integrações" aria-label="Abrir integrações" aria-haspopup="dialog" data-icon="plug"></button>
+      <button id="integrations" class="icon-button" title="Integrações" aria-label="Abrir integrações" aria-haspopup="dialog" data-icon="plug"></button>
       <button id="settings" class="icon-button" title="Configurações" aria-label="Abrir configurações" aria-haspopup="dialog" data-icon="settings"></button>
       <button id="theme" class="icon-button" title="Alternar modo escuro e claro" aria-label="Ativar modo escuro" data-icon="moon"></button>
       <span class="divider"></span>
@@ -176,12 +176,108 @@
     </div>
   </dialog>
 
+  <dialog id="onboarding-dialog" class="drawer modal fullscreen onboarding" aria-labelledby="ob-title">
+    <div class="ob">
+      <aside class="ob-rail">
+        <div class="ob-brand"><span class="ob-mark">D</span><span><b>DRIVE MAXX</b><small id="ob-tenant">Boas-vindas</small></span></div>
+        <ol class="ob-steps" id="ob-steps">
+          <li data-go="welcome">Boas-vindas</li>
+          <li data-go="modules">Conheça o sistema</li>
+          <li data-go="profile">Seus dados</li>
+          <li data-go="olist">Integração Olist</li>
+          <li data-go="done">Pronto</li>
+        </ol>
+        <button class="ob-skip" type="button" id="ob-skip">Pular apresentação</button>
+      </aside>
+      <div class="ob-main">
+        <div class="ob-head"><span id="ob-progress" class="ob-progress"><i></i></span><button class="icon-button drawer-close" type="button" aria-label="Fechar" data-icon="close"></button></div>
+        <div class="ob-body">
+          <section class="ob-step" data-step="welcome">
+            <p class="ob-kicker">Primeiro acesso</p>
+            <h1 id="ob-title">Olá, <span id="ob-name">—</span>.</h1>
+            <p class="ob-lead">Este é o seu portal de compras com <b id="ob-tenant-name">o fornecedor</b>. Em poucos passos mostramos como ele funciona, confirmamos seus dados e, se quiser, conectamos a sua conta Olist.</p>
+            <p class="ob-note">Leva cerca de 2 minutos. Você pode pular e voltar depois em Configurações.</p>
+          </section>
+          <section class="ob-step" data-step="modules" hidden>
+            <p class="ob-kicker">Conheça o sistema</p>
+            <h1>Tudo o que você precisa para comprar</h1>
+            <div class="ob-cards">
+              <article><span data-icon="box"></span><b>Produtos</b><p>Catálogo com estoque disponível e o seu preço. Clique na foto ou no nome para ver detalhes, variações e grade.</p></article>
+              <article><span data-icon="bag"></span><b>Sacola</b><p>Marque os produtos na primeira coluna e clique na sacola para informar as quantidades.</p></article>
+              <article><span data-icon="table"></span><b>Meus pedidos</b><p>Ao salvar a sacola o pedido é enviado direto para o fornecedor. Acompanhe a situação de cada um aqui.</p></article>
+              <article><span data-icon="plug"></span><b>Integração Olist</b><p>Conecte o seu Olist ERP para receber produtos e saldos de estoque na sua própria conta.</p></article>
+            </div>
+          </section>
+          <form class="ob-step" data-step="profile" id="ob-profile" novalidate hidden>
+            <p class="ob-kicker">Seus dados</p>
+            <h1>Confirme seus dados</h1>
+            <p class="ob-lead">A empresa vem do cadastro feito pelo fornecedor. Revise seu nome e contatos.</p>
+            <div class="ob-company"><small>Empresa</small><b id="ob-legal">—</b><span id="ob-cnpj" class="mono">—</span></div>
+            <div class="form-grid ob-grid">
+              <label class="field"><span>Seu nome</span><input id="ob-user-name" maxlength="120" autocomplete="name" required></label>
+              <label class="field"><span>Seu e-mail</span><input id="ob-user-email" type="email" maxlength="160" autocomplete="email"></label>
+              <label class="field"><span>Telefone da empresa</span><input id="ob-phone" maxlength="40" autocomplete="tel" inputmode="tel"></label>
+              <label class="field"><span>E-mail da empresa</span><input id="ob-company-email" type="email" maxlength="160"></label>
+            </div>
+          </form>
+          <section class="ob-step" data-step="olist" hidden>
+            <p class="ob-kicker">Integração Olist</p>
+            <h1>Quer integrar a sua conta Olist?</h1>
+            <p class="ob-lead">Com a sua conta Olist conectada, os produtos que você compra e os saldos de estoque do fornecedor poderão chegar direto no seu ERP.</p>
+            <div class="ob-choice">
+              <button type="button" class="ob-option" id="ob-olist-yes"><b>Sim, integrar agora</b><span>Vamos te guiar para criar o aplicativo na sua Olist.</span></button>
+              <button type="button" class="ob-option" id="ob-olist-later"><b>Agora não</b><span>Você pode integrar depois em Integrações.</span></button>
+            </div>
+            <div id="ob-olist-connected" class="ob-success" hidden></div>
+          </section>
+          <section class="ob-step" data-step="guide" hidden>
+            <p class="ob-kicker">Integração Olist · 1 de 2</p>
+            <h1>Crie o aplicativo na sua Olist</h1>
+            <ol class="ob-howto">
+              <li>Em outra aba, entre no seu <b>Olist ERP</b> e acesse <b>Configurações → Geral → Aplicativos</b>.</li>
+              <li>Clique em <b>Criar aplicativo</b> e dê um nome, por exemplo <b>DRIVE MAXX</b>.</li>
+              <li>Em <b>URL de redirecionamento</b>, cole exatamente este endereço:
+                <span class="ob-copy"><code id="ob-redirect">—</code><button type="button" class="button" id="ob-copy">Copiar</button></span></li>
+              <li>Em <b>Permissões</b>, marque todos os itens com <b>leitura e escrita</b> (produtos, estoque, pedidos, contatos e dados da empresa).</li>
+              <li>Clique em <b>Salvar</b>. A Olist mostrará o <b>Client ID</b> e o <b>Client Secret</b> do aplicativo.</li>
+            </ol>
+          </section>
+          <form class="ob-step" data-step="keys" id="ob-keys" novalidate hidden>
+            <p class="ob-kicker">Integração Olist · 2 de 2</p>
+            <h1>Cole as chaves do aplicativo</h1>
+            <p class="ob-lead">As chaves ficam guardadas criptografadas na sua conta. Em seguida você autoriza o acesso na própria Olist.</p>
+            <div class="form-grid ob-grid">
+              <label class="field"><span>Client ID</span><input id="ob-client-id" maxlength="200" autocomplete="off" spellcheck="false" autocapitalize="none"></label>
+              <label class="field"><span>Client Secret</span><input id="ob-client-secret" type="password" maxlength="300" autocomplete="off" spellcheck="false"></label>
+            </div>
+          </form>
+          <section class="ob-step" data-step="done" hidden>
+            <p class="ob-kicker">Pronto</p>
+            <h1>Tudo certo!</h1>
+            <p class="ob-lead" id="ob-done-text">Seu acesso está configurado.</p>
+            <div id="ob-done-olist" class="ob-success" hidden></div>
+          </section>
+          <p id="ob-error" class="form-error" role="alert" hidden></p>
+        </div>
+        <div class="ob-foot"><button class="button" type="button" id="ob-back">Voltar</button><button class="button primary" type="button" id="ob-next" autofocus>Começar</button></div>
+      </div>
+    </div>
+  </dialog>
+
   <dialog id="integrations-drawer" class="drawer" aria-labelledby="integrations-title">
     <div class="drawer-body">
       <div class="drawer-head"><h2 id="integrations-title"><span data-icon="link"></span> INTEGRAÇÕES</h2><button class="icon-button drawer-close" aria-label="Fechar integrações" data-icon="close"></button></div>
       <p class="drawer-intro">Conecte suas contas para sincronizar dados automaticamente.</p>
       <ul class="integration-list">
-        <li class="integration">
+        <li id="customer-olist-item" class="integration" hidden>
+          <span class="integration-logo olist-logo" aria-hidden="true">o</span>
+          <span class="integration-info"><b>Minha Olist</b><span id="customer-olist-status" class="integration-status"><i></i><span>Verificando…</span></span></span>
+          <button id="customer-olist-setup" class="integration-action" type="button">CONFIGURAR</button>
+          <a id="customer-olist-auth" class="integration-action" href="/auth/customer-login" hidden>AUTENTICAR</a>
+          <button id="customer-olist-disconnect" class="integration-action danger" type="button" hidden>DESCONECTAR</button>
+          <p id="customer-olist-error" class="integration-error" role="alert" hidden></p>
+        </li>
+        <li id="olist-item" class="integration">
           <span class="integration-logo olist-logo" aria-hidden="true">o</span>
           <span class="integration-info"><b>Olist</b><span id="olist-status" class="integration-status"><i></i><span>Verificando…</span></span></span>
           <a id="olist-auth" class="integration-action" href="/auth/login">AUTENTICAR</a>
@@ -210,9 +306,13 @@
         <label class="settings-row" data-admin-only><span>Carregar estoque e variações após importar</span><input id="auto-enrich" type="checkbox" checked></label>
         <div class="settings-row"><span>Colunas</span><button id="settings-columns" class="integration-action" type="button">GERENCIAR</button></div>
       </section>
-      <section class="settings-group" data-admin-only>
+      <section class="settings-group" id="settings-integrations-group">
         <h3>Integrações</h3>
         <div class="settings-row"><span>Olist ERP</span><button id="settings-integrations" class="integration-action" type="button">ABRIR</button></div>
+      </section>
+      <section class="settings-group" id="settings-help" hidden>
+        <h3>Ajuda</h3>
+        <div class="settings-row"><span>Apresentação do sistema</span><button id="settings-tour" class="integration-action" type="button">REFAZER TOUR</button></div>
       </section>
       <section class="settings-group">
         <h3>Acesso</h3>

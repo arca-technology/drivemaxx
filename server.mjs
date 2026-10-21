@@ -16,7 +16,7 @@ const API = 'https://erp.tiny.com.br/public-api/v3';
 const id = () => randomBytes(32).toString('base64url');
 const fault = (status, message, extra = {}) => Object.assign(new Error(message), { status, ...extra });
 // Routes a buyer may use; everything else is admin-only.
-const BUYER_ROUTES = [/^\/api\/me$/, /^\/api\/catalog$/, /^\/api\/products\/\d+\/detail$/, /^\/api\/orders(\/[\w-]+)?$/, /^\/auth\/app-logout$/];
+const BUYER_ROUTES = [/^\/api\/customer\/olist(-app)?$/, /^\/auth\/customer-login$/, /^\/auth\/callback$/, /^\/api\/me$/, /^\/api\/catalog$/, /^\/api\/products\/\d+\/detail$/, /^\/api\/orders(\/[\w-]+)?$/, /^\/auth\/app-logout$/];
 
 export function createApp(config, fetcher = fetch) {
   const localSessions = new Map();
@@ -77,10 +77,10 @@ export function createApp(config, fetcher = fetch) {
     res.end(JSON.stringify(body));
   }
   function redirect(res, location, headers = {}) { res.writeHead(302, { Location: location, ...headers }); res.end(); }
-  async function tokenRequest(fields) {
+  async function tokenRequest(fields, creds = { clientId: config.clientId, clientSecret: config.clientSecret }) {
     let response;
     try {
-      response = await fetcher(TOKEN, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ client_id: config.clientId, client_secret: config.clientSecret, ...fields }), signal: AbortSignal.timeout(25000) });
+      response = await fetcher(TOKEN, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ client_id: creds.clientId, client_secret: creds.clientSecret, ...fields }), signal: AbortSignal.timeout(25000) });
     } catch { throw fault(502, 'Não foi possível conectar à Olist. Verifique a conexão e tente novamente.'); }
     const data = await response.json().catch(() => ({}));
     if (!response.ok || !data.access_token) throw fault(response.status === 400 || response.status === 401 ? 401 : 502, 'A Olist não aceitou a autenticação. Confira as credenciais e a URL de redirecionamento e conecte novamente.');
@@ -92,7 +92,7 @@ export function createApp(config, fetcher = fetch) {
   async function refresh(session) {
     if (session.reload) { await session.reload(); if (session.tokens?.expiresAt > Date.now() + 60000 && !session.forceRefresh) return; }
     if (!session.tokens?.refresh_token) { session.tokens = null; throw fault(401, 'Sua sessão expirou. Conecte sua conta Olist novamente.'); }
-    if (!session.refreshing) session.refreshing = tokenRequest({ grant_type: 'refresh_token', refresh_token: session.tokens.refresh_token })
+    if (!session.refreshing) session.refreshing = tokenRequest({ grant_type: 'refresh_token', refresh_token: session.tokens.refresh_token }, session.creds)
       .then(async data => { saveTokens(session, data); await session.persist?.(session.tokens); })
       .catch(async error => { if (error.status === 401) { session.tokens = null; await session.persist?.(null); } throw error; })
       .finally(() => { session.refreshing = null; });
@@ -103,6 +103,18 @@ export function createApp(config, fetcher = fetch) {
     const session = { tenantId };
     session.reload = async () => { const tenant = await repo.getTenant(tenantId); session.tokens = tenant?.olist_tokens ? tokenBox.open(tenant.olist_tokens) : null; };
     session.persist = async tokens => repo.updateTenant(tenantId, { olist_tokens: tokens ? tokenBox.seal(tokens) : null, ...(tokens ? {} : { olist_connected_at: null }) });
+    await session.reload();
+    return session;
+  }
+  // A customer's own Olist account (their private app credentials + tokens, both sealed on the customer).
+  async function customerSession(tenantId, customerId) {
+    const session = { tenantId, customerId };
+    session.reload = async () => {
+      const customer = await repo.getCustomer(tenantId, customerId);
+      session.creds = customer?.olist_app ? tokenBox.open(customer.olist_app) : null;
+      session.tokens = customer?.olist_tokens && session.creds ? tokenBox.open(customer.olist_tokens) : null;
+    };
+    session.persist = async tokens => repo.updateCustomer(tenantId, customerId, { olist_tokens: tokens ? tokenBox.seal(tokens) : null, ...(tokens ? {} : { olist_connected_at: null }) });
     await session.reload();
     return session;
   }
@@ -208,6 +220,11 @@ export function createApp(config, fetcher = fetch) {
           tenantOlist.forceRefresh = true;
           try { await refresh(tenantOlist); refreshed++; } catch (error) { console.warn('[cron] refresh', tenant.id, error.message); }
         }
+        for (const customer of await repo.listConnectedCustomers()) {
+          const customerOlist = await customerSession(customer.tenant_id, customer.id);
+          customerOlist.forceRefresh = true;
+          try { await refresh(customerOlist); refreshed++; } catch (error) { console.warn('[cron] refresh cliente', customer.id, error.message); }
+        }
         return send(res, 200, { ok: true, refreshed });
       }
 
@@ -246,7 +263,64 @@ export function createApp(config, fetcher = fetch) {
       if (who && who.role !== 'admin' && (url.pathname.startsWith('/api/') || url.pathname.startsWith('/auth/')) && !BUYER_ROUTES.some(r => r.test(url.pathname))) throw fault(403, 'Acesso restrito ao administrador.');
       if (req.method === 'GET' && url.pathname === '/api/me') {
         const tenant = repo && who.tenantId ? await repo.getTenant(who.tenantId) : null;
-        return send(res, 200, { user: who.username, name: who.name, role: who.role, gate, database: !!repo, tenant: tenant ? { name: tenant.name, defaultMargin: Number(tenant.default_margin || 0), webhook: !!tenant.webhook_token } : null });
+        const me = repo && who.tenantId ? await repo.getUser(who.id) : null;
+        const customer = repo && who.customerId ? await repo.getCustomer(who.tenantId, who.customerId) : null;
+        return send(res, 200, {
+          user: who.username, name: who.name, email: me?.email || null, role: who.role, gate, database: !!repo, onboarded: !repo || !!me?.onboarded_at, redirectUri: config.redirectUri,
+          tenant: tenant ? { name: tenant.name, defaultMargin: Number(tenant.default_margin || 0), webhook: !!tenant.webhook_token } : null,
+          customer: customer ? { cnpj: customer.cnpj, legalName: customer.legal_name, tradeName: customer.trade_name, email: customer.email, phone: customer.phone, address: customer.address, olist: { configured: !!customer.olist_app, connected: !!customer.olist_tokens, company: customer.olist_company || null, connectedAt: customer.olist_connected_at || null } } : null
+        });
+      }
+      // Profile confirmation and onboarding completion.
+      if (req.method === 'PATCH' && url.pathname === '/api/me' && repo && who.tenantId) {
+        if (req.headers.origin && req.headers.origin !== origin) throw fault(403, 'Origem inválida.');
+        const body = await readJson(req);
+        const clean = (v, max) => v == null ? null : String(v).trim().slice(0, max) || null;
+        const userPatch = {};
+        if (body.name !== undefined) { const name = clean(body.name, 120); if (!name) throw fault(400, 'Informe seu nome.'); userPatch.name = name; }
+        if (body.email !== undefined) { const email = clean(body.email, 160); if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw fault(400, 'E-mail inválido.'); userPatch.email = email; }
+        if (body.onboarded === true) userPatch.onboarded_at = new Date().toISOString();
+        if (body.onboarded === false) userPatch.onboarded_at = null;
+        if (Object.keys(userPatch).length) { await repo.updateUser(who.tenantId, who.id, userPatch); userCache.delete(who.id); }
+        if (who.customerId && (body.phone !== undefined || body.customerEmail !== undefined)) await repo.updateCustomer(who.tenantId, who.customerId, { ...(body.phone !== undefined ? { phone: clean(body.phone, 40) } : {}), ...(body.customerEmail !== undefined ? { email: clean(body.customerEmail, 160) } : {}) });
+        return send(res, 200, { ok: true });
+      }
+      // Customer's own Olist integration (buyers): private app credentials, OAuth and status.
+      if (url.pathname === '/api/customer/olist-app' && req.method === 'PUT' && repo && who.customerId) {
+        if (req.headers.origin && req.headers.origin !== origin) throw fault(403, 'Origem inválida.');
+        const body = await readJson(req);
+        const clientId = String(body.clientId || '').trim(), clientSecret = String(body.clientSecret || '').trim();
+        if (!/^[\w.-]{8,200}$/.test(clientId)) throw fault(400, 'Client ID inválido. Copie exatamente como aparece no aplicativo da Olist.');
+        if (clientSecret.length < 8 || clientSecret.length > 300 || /\s/.test(clientSecret)) throw fault(400, 'Client Secret inválido.');
+        await repo.updateCustomer(who.tenantId, who.customerId, { olist_app: tokenBox.seal({ clientId, clientSecret }), olist_tokens: null, olist_connected_at: null, olist_company: null });
+        return send(res, 200, { ok: true });
+      }
+      if (url.pathname === '/api/customer/olist' && repo && who.customerId) {
+        if (req.method === 'DELETE') {
+          if (req.headers.origin && req.headers.origin !== origin) throw fault(403, 'Origem inválida.');
+          await repo.updateCustomer(who.tenantId, who.customerId, { olist_tokens: null, olist_connected_at: null, ...(url.searchParams.get('app') === '1' ? { olist_app: null, olist_company: null } : {}) });
+          return send(res, 200, { ok: true });
+        }
+        if (req.method === 'GET') {
+          const customerOlist = await customerSession(who.tenantId, who.customerId);
+          if (!customerOlist.creds) return send(res, 200, { configured: false, connected: false });
+          if (!customerOlist.tokens) return send(res, 200, { configured: true, connected: false });
+          try {
+            const company = await olist(customerOlist, '/info', '/info (dados da empresa)', data => typeof data.razaoSocial === 'string');
+            const info = { razaoSocial: company.razaoSocial, cpfCnpj: company.cpfCnpj ?? company.cnpj ?? null };
+            await repo.updateCustomer(who.tenantId, who.customerId, { olist_company: info });
+            return send(res, 200, { configured: true, connected: true, company: info });
+          } catch (error) { return send(res, 200, { configured: true, connected: !!customerOlist.tokens, error: error.message }); }
+        }
+      }
+      if (req.method === 'GET' && url.pathname === '/auth/customer-login' && repo && who.customerId) {
+        const customerOlist = await customerSession(who.tenantId, who.customerId);
+        if (!customerOlist.creds) return redirect(res, '/?auth=customer-missing');
+        const sessionId = id(), state = id(), verifier = id();
+        sessions.set(sessionId, { kind: 'customer', customerId: who.customerId, state, verifier, authStarted: Date.now(), lastSeen: Date.now(), tokens: null });
+        const target = new URL(AUTH);
+        target.search = new URLSearchParams({ client_id: customerOlist.creds.clientId, redirect_uri: config.redirectUri, scope: 'openid', response_type: 'code', state, code_challenge: createHash('sha256').update(verifier).digest('base64url'), code_challenge_method: 'S256' });
+        return redirect(res, target.href, { 'Set-Cookie': cookie(sessionId) });
       }
       if (bms && who && await bms.handle(req, res, url, who)) return;
 
@@ -265,6 +339,20 @@ export function createApp(config, fetcher = fetch) {
         if (!session?.state || url.searchParams.get('state') !== session.state || Date.now() - session.authStarted > 600000) return redirect(res, '/?auth=invalid');
         const verifier = session.verifier;
         delete session.state; delete session.verifier;
+        // Customer connecting their own Olist account.
+        if (session.kind === 'customer') {
+          if (!repo || who?.customerId !== session.customerId) return redirect(res, '/?auth=invalid');
+          if (url.searchParams.has('error')) return redirect(res, '/?auth=customer-denied');
+          try {
+            const customerOlist = await customerSession(who.tenantId, who.customerId);
+            const tokens = await tokenRequest({ grant_type: 'authorization_code', code: url.searchParams.get('code') || '', redirect_uri: config.redirectUri, code_verifier: verifier }, customerOlist.creds);
+            saveTokens(customerOlist, tokens);
+            await repo.updateCustomer(who.tenantId, who.customerId, { olist_tokens: tokenBox.seal(customerOlist.tokens), olist_connected_at: new Date().toISOString() });
+            sessions.delete(sid);
+            return redirect(res, '/?auth=customer', { 'Set-Cookie': cookie('', 0) });
+          } catch { return redirect(res, '/?auth=customer-failed'); }
+        }
+        if (who?.role !== 'admin') return redirect(res, '/?auth=invalid');
         if (url.searchParams.has('error')) return redirect(res, '/?auth=denied');
         const code = url.searchParams.get('code');
         if (!code) return redirect(res, '/?auth=invalid');

@@ -9,6 +9,13 @@ document.querySelectorAll('[data-icon]').forEach(el => { if (!el.innerHTML) el.i
 // ── Roles ────────────────────────────────────────────────────
 function applyRole(me) {
   const admin = me.role === 'admin';
+  state.me = me;
+  $('integrations').hidden = !admin && !me.database;
+  $('olist-item').hidden = !admin;
+  $('customer-olist-item').hidden = admin || !me.customer;
+  $('settings-integrations-group').hidden = !admin && !me.customer;
+  $('settings-help').hidden = admin || !me.database;
+  if (!admin && me.database) setTimeout(() => startOnboarding(me), 0);
   document.querySelectorAll('[data-admin-only]').forEach(el => { el.hidden = !admin || (el.hasAttribute('data-database-only') && !me.database); });
   document.querySelector('[data-view="orders"]').hidden = !me.database;
   document.querySelector('[data-view="users"]').hidden = !(me.database && admin);
@@ -409,3 +416,142 @@ $('product-add').onclick = () => {
   render(); if (detailData) renderDetail(detailData);
   notice(`${ids.length === 1 ? 'Produto adicionado' : `${ids.length} variações adicionadas`} à seleção. Clique em Sacola para informar as quantidades.`);
 };
+
+
+// ── Buyer onboarding and own Olist integration ───────────────
+const OB_FLOW = ['welcome', 'modules', 'profile', 'olist', 'guide', 'keys', 'done'];
+const OB_RAIL = { guide: 'olist', keys: 'olist' };
+const OB_NEXT = { welcome: 'Começar', modules: 'Próximo', profile: 'Confirmar dados', olist: 'Próximo', guide: 'Já criei o aplicativo', keys: 'Salvar e autenticar na Olist', done: 'Ir para os produtos' };
+let obStep = 'welcome', obOlistChoice = null;
+const obError = message => { $('ob-error').hidden = !message; $('ob-error').textContent = message || ''; };
+function obShow(step) {
+  obStep = step; obError('');
+  document.querySelectorAll('#onboarding-dialog .ob-step').forEach(el => { el.hidden = el.dataset.step !== step; });
+  const rail = OB_RAIL[step] || step, order = ['welcome', 'modules', 'profile', 'olist', 'done'], at = order.indexOf(rail);
+  document.querySelectorAll('#ob-steps li').forEach((li, i) => { li.classList.toggle('active', i === at); li.classList.toggle('done', i < at); });
+  $('ob-progress').firstElementChild.style.width = `${Math.round(((at + 1) / order.length) * 100)}%`;
+  $('ob-back').hidden = step === 'welcome';
+  const olist = state.me?.customer?.olist || {};
+  $('ob-next').hidden = step === 'olist' && !olist.connected;
+  $('ob-next').textContent = OB_NEXT[step];
+  if (step === 'done') {
+    $('ob-done-text').textContent = olist.connected ? 'Seu acesso está configurado e a sua conta Olist está conectada.' : 'Seu acesso está configurado. Quando quiser, conecte a sua Olist em Integrações (ícone de tomada no topo).';
+    $('ob-done-olist').hidden = !olist.connected;
+    $('ob-done-olist').textContent = olist.connected ? `Olist conectada · ${olist.company?.razaoSocial || 'conta autorizada'}` : '';
+  }
+  if (step === 'olist') {
+    $('ob-olist-connected').hidden = !olist.connected;
+    $('ob-olist-connected').textContent = olist.connected ? `Olist conectada · ${olist.company?.razaoSocial || 'conta autorizada'}` : '';
+    document.querySelector('#onboarding-dialog .ob-choice').hidden = !!olist.connected;
+  }
+  const focus = document.querySelector(`#onboarding-dialog [data-step="${step}"] input`);
+  if (focus) setTimeout(() => focus.focus(), 50);
+}
+function fillOnboarding(me) {
+  const c = me.customer || {};
+  $('ob-name').textContent = (me.name || me.user || '').split(' ')[0] || 'tudo bem';
+  $('ob-tenant').textContent = me.tenant?.name || 'Boas-vindas';
+  $('ob-tenant-name').textContent = me.tenant?.name || 'o fornecedor';
+  $('ob-legal').textContent = c.legalName || c.tradeName || '—';
+  $('ob-cnpj').textContent = cnpjMask(c.cnpj) || '—';
+  $('ob-user-name').value = me.name || '';
+  $('ob-user-email').value = me.email || '';
+  $('ob-phone').value = c.phone || '';
+  $('ob-company-email').value = c.email || '';
+  $('ob-redirect').textContent = me.redirectUri || `${location.origin}/`;
+}
+function openOnboarding(step = 'welcome') {
+  fillOnboarding(state.me);
+  obShow(step);
+  openDrawer($('onboarding-dialog'));
+}
+async function finishOnboarding() {
+  if (state.me.onboarded) return;
+  state.me.onboarded = true;
+  try { await api('/api/me', patchJson({ onboarded: true })); } catch { /* best effort: asked again next login */ }
+}
+async function refreshMe() { const me = await api('/api/me'); state.me = me; return me; }
+async function startOnboarding(me) {
+  const auth = state.authReturn || '';
+  if (auth.startsWith('customer')) {
+    if (auth === 'customer') { try { await api('/api/customer/olist'); await refreshMe(); } catch { /* status shown below */ } }
+    if (!state.me.onboarded) { openOnboarding(auth === 'customer' ? 'olist' : 'keys'); if (auth !== 'customer') obError($('notice').textContent); return; }
+    return openCustomerIntegrations();
+  }
+  if (!me.onboarded) openOnboarding();
+}
+async function obNext() {
+  const button = $('ob-next');
+  try {
+    if (obStep === 'profile') {
+      const name = $('ob-user-name').value.trim();
+      if (!name) { $('ob-user-name').focus(); return obError('Informe seu nome.'); }
+      button.disabled = true;
+      await api('/api/me', patchJson({ name, email: $('ob-user-email').value.trim(), phone: $('ob-phone').value.trim(), customerEmail: $('ob-company-email').value.trim() }));
+      state.me.name = name; $('app-user').textContent = name;
+      return obShow('olist');
+    }
+    if (obStep === 'keys') {
+      const clientId = $('ob-client-id').value.trim(), clientSecret = $('ob-client-secret').value.trim();
+      if (!clientId || !clientSecret) return obError('Cole o Client ID e o Client Secret do aplicativo.');
+      button.disabled = true;
+      await api('/api/customer/olist-app', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ clientId, clientSecret }) });
+      $('ob-client-secret').value = '';
+      location.href = '/auth/customer-login';
+      return;
+    }
+    if (obStep === 'done') { await finishOnboarding(); return closeDrawer($('onboarding-dialog')); }
+    if (obStep === 'olist') return obShow('done');
+    obShow(OB_FLOW[OB_FLOW.indexOf(obStep) + 1]);
+  } catch (error) { obError(error.message); } finally { button.disabled = false; }
+}
+function obBack() {
+  if (obStep === 'done') return obShow(obOlistChoice === 'yes' && !state.me?.customer?.olist?.connected ? 'keys' : 'olist');
+  if (obStep === 'olist') return obShow('profile');
+  obShow(OB_FLOW[OB_FLOW.indexOf(obStep) - 1]);
+}
+$('ob-next').onclick = obNext;
+$('ob-back').onclick = obBack;
+$('ob-profile').addEventListener('submit', event => { event.preventDefault(); obNext(); });
+$('ob-keys').addEventListener('submit', event => { event.preventDefault(); obNext(); });
+$('ob-olist-yes').onclick = () => { obOlistChoice = 'yes'; obShow('guide'); };
+$('ob-olist-later').onclick = () => { obOlistChoice = 'later'; obShow('done'); };
+$('ob-skip').onclick = () => closeDrawer($('onboarding-dialog'));
+$('onboarding-dialog').addEventListener('close', () => { finishOnboarding(); });
+$('ob-copy').onclick = async () => {
+  try { await navigator.clipboard.writeText($('ob-redirect').textContent); $('ob-copy').textContent = 'Copiado'; setTimeout(() => { $('ob-copy').textContent = 'Copiar'; }, 1600); }
+  catch { getSelection().selectAllChildren($('ob-redirect')); }
+};
+$('settings-tour').onclick = () => { closeDrawer($('settings-drawer')); setTimeout(() => openOnboarding(), 220); };
+
+function customerStatus(text, kind = '') {
+  $('customer-olist-error').hidden = kind !== 'error';
+  $('customer-olist-error').textContent = kind === 'error' ? text : '';
+  const label = document.createElement('span'); label.textContent = kind === 'error' ? 'Falha na conexão' : text;
+  $('customer-olist-status').className = `integration-status ${kind}`.trim();
+  $('customer-olist-status').replaceChildren(document.createElement('i'), label);
+}
+async function checkCustomerOlist() {
+  customerStatus('Verificando…');
+  ['customer-olist-auth', 'customer-olist-disconnect'].forEach(id => { $(id).hidden = true; });
+  try {
+    const s = await api('/api/customer/olist');
+    $('customer-olist-setup').textContent = s.configured ? 'ALTERAR CHAVES' : 'CONFIGURAR';
+    $('customer-olist-auth').hidden = !s.configured || (s.connected && !s.error);
+    $('customer-olist-auth').textContent = s.connected ? 'RECONECTAR' : 'AUTENTICAR';
+    $('customer-olist-disconnect').hidden = !s.connected;
+    $('customer-olist-setup').hidden = s.connected && !s.error;
+    if (s.error) { $('customer-olist-auth').hidden = false; $('customer-olist-auth').textContent = 'RECONECTAR'; return customerStatus(s.error, 'error'); }
+    if (s.connected) return customerStatus(`Conectada · ${s.company?.razaoSocial || 'conta autorizada'}`, 'ok');
+    customerStatus(s.configured ? 'Chaves salvas · falta autenticar' : 'Não conectada');
+  } catch (error) { customerStatus(error.message, 'error'); }
+}
+function openCustomerIntegrations() { openDrawer($('integrations-drawer')); checkCustomerOlist(); }
+$('customer-olist-setup').onclick = () => { closeDrawer($('integrations-drawer')); setTimeout(() => openOnboarding('guide'), 220); obOlistChoice = 'yes'; };
+$('customer-olist-disconnect').onclick = async () => {
+  try { await api('/api/customer/olist', { method: 'DELETE' }); await refreshMe(); checkCustomerOlist(); } catch (error) { customerStatus(error.message, 'error'); }
+};
+for (const id of ['integrations', 'settings-integrations']) {
+  const adminOpen = $(id).onclick;
+  $(id).onclick = () => (state.role === 'admin' ? adminOpen() : (closeDrawer($('settings-drawer')), openCustomerIntegrations()));
+}

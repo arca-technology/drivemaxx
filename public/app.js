@@ -743,8 +743,9 @@ $('olist-disconnect').onclick = () => $('account-dialog').showModal();
 async function init() {
   const auth = new URLSearchParams(location.search).get('auth');
   if (auth) {
-    const messages = { invalid: 'A tentativa de autenticação expirou ou é inválida. Clique em autenticar para iniciar novamente.', denied: 'A autorização na Olist foi cancelada. Você pode tentar novamente.', failed: 'A Olist não aceitou a autenticação. Confira as credenciais e a URL de retorno cadastrada.', success: '' };
-    notice(messages[auth] || '', auth !== 'success');
+    const messages = { invalid: 'A tentativa de autenticação expirou ou é inválida. Clique em autenticar para iniciar novamente.', denied: 'A autorização na Olist foi cancelada. Você pode tentar novamente.', failed: 'A Olist não aceitou a autenticação. Confira as credenciais e a URL de retorno cadastrada.', success: '', customer: '', 'customer-denied': 'A autorização na sua Olist foi cancelada. Você pode tentar novamente em Integrações.', 'customer-failed': 'A Olist não aceitou a autenticação. Confira o Client ID, o Client Secret e a URL de redirecionamento do aplicativo.', 'customer-missing': 'Cadastre as chaves do aplicativo Olist antes de autenticar.' };
+    state.authReturn = auth;
+    notice(messages[auth] || '', !!messages[auth]);
     history.replaceState(null, '', '/');
   }
   try {

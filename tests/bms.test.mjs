@@ -208,3 +208,53 @@ test('opening a product fetches its Olist detail once, saves it and hides cost f
   assert.equal(seen.precos, undefined);
   assert.ok(!JSON.stringify(seen).includes('custo'));
 });
+
+test('buyer onboarding: confirms profile, saves own Olist app, authenticates with own credentials', async t => {
+  const tokenCalls = [];
+  const { repo, call, loginAs } = await setup(t, async (url, init) => {
+    if (url.endsWith('/token')) { const body = new URLSearchParams(init.body); tokenCalls.push(body.get('client_id')); return json({ access_token: 'cust-tok', refresh_token: 'cust-ref', expires_in: 14400 }); }
+    if (url.endsWith('/info')) return json({ razaoSocial: 'CLIENTE LTDA', cpfCnpj: '11222333000181' });
+    return json({ itens: [] });
+  });
+  repo.tables.customers.push({ id: 'cust-1', tenant_id: TENANT, cnpj: '11222333000181', legal_name: 'CLIENTE LTDA', email: null, phone: null });
+  repo.tables.app_users.push({ id: 'buyer-1', tenant_id: TENANT, customer_id: 'cust-1', name: 'Comprador', username: 'comprador', password_hash: await hashPassword('senha-buyer'), role: 'buyer', active: true });
+  const buyer = await loginAs('comprador', 'senha-buyer');
+
+  let me = (await call('/api/me', { cookie: buyer })).data;
+  assert.equal(me.onboarded, false);
+  assert.equal(me.customer.legalName, 'CLIENTE LTDA');
+  assert.deepEqual(me.customer.olist, { configured: false, connected: false, company: null, connectedAt: null });
+
+  assert.equal((await call('/api/me', { method: 'PATCH', cookie: buyer, body: { name: 'João', email: 'x' } })).status, 400);
+  assert.equal((await call('/api/me', { method: 'PATCH', cookie: buyer, body: { name: 'João', email: 'joao@cliente.com', phone: '11 99999-0000' } })).status, 200);
+  assert.equal(repo.tables.customers[0].phone, '11 99999-0000');
+
+  // Buyer cannot start the master (admin) OAuth flow.
+  assert.equal((await call('/auth/login', { cookie: buyer })).status, 403);
+  assert.equal((await call('/auth/customer-login', { cookie: buyer })).headers.location, '/?auth=customer-missing');
+
+  assert.equal((await call('/api/customer/olist-app', { method: 'PUT', cookie: buyer, body: { clientId: 'x', clientSecret: 'y' } })).status, 400);
+  assert.equal((await call('/api/customer/olist-app', { method: 'PUT', cookie: buyer, body: { clientId: 'tiny-api-cliente-123', clientSecret: 'segredo-do-cliente' } })).status, 200);
+  assert.ok(!repo.tables.customers[0].olist_app.includes('segredo'));
+
+  const start = await call('/auth/customer-login', { cookie: buyer });
+  const target = new URL(start.headers.location);
+  assert.equal(target.searchParams.get('client_id'), 'tiny-api-cliente-123');
+  const session = start.headers['set-cookie'][0].split(';')[0];
+  const cb = await call(`/auth/callback?code=abc&state=${target.searchParams.get('state')}`, { cookie: `${buyer}; ${session}` });
+  assert.equal(cb.headers.location, '/?auth=customer');
+  assert.deepEqual(tokenCalls, ['tiny-api-cliente-123']);
+  assert.ok(repo.tables.customers[0].olist_tokens && !repo.tables.customers[0].olist_tokens.includes('cust-tok'));
+  assert.equal(repo.tables.tenants[0].olist_tokens, null);
+
+  const status = (await call('/api/customer/olist', { cookie: buyer })).data;
+  assert.equal(status.connected, true); assert.equal(status.company.razaoSocial, 'CLIENTE LTDA');
+
+  assert.equal((await call('/api/me', { method: 'PATCH', cookie: buyer, body: { onboarded: true } })).status, 200);
+  me = (await call('/api/me', { cookie: buyer })).data;
+  assert.equal(me.onboarded, true); assert.equal(me.name, 'João'); assert.equal(me.customer.olist.connected, true);
+
+  assert.equal((await call('/api/customer/olist', { method: 'DELETE', cookie: buyer })).status, 200);
+  assert.equal(repo.tables.customers[0].olist_tokens, null);
+  assert.ok(repo.tables.customers[0].olist_app);
+});

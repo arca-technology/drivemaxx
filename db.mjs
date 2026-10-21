@@ -58,7 +58,7 @@ export function supabaseRepo({ url, key, fetcher = fetch }) {
   const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   const eq = value => `eq.${encodeURIComponent(value)}`;
   const inList = values => `in.(${values.map(v => encodeURIComponent(v)).join(',')})`;
-  const userCols = 'id,tenant_id,customer_id,name,username,email,password_hash,role,active,last_login_at,created_at';
+  const userCols = 'id,tenant_id,customer_id,name,username,email,password_hash,role,active,last_login_at,onboarded_at,created_at';
   const chunk = (list, size) => Array.from({ length: Math.ceil(list.length / size) }, (_, i) => list.slice(i * size, (i + 1) * size));
   return {
     kind: 'supabase',
@@ -71,6 +71,7 @@ export function supabaseRepo({ url, key, fetcher = fetch }) {
     async touchLogin(id) { await rest('PATCH', `app_users?id=${eq(id)}`, { body: { last_login_at: new Date().toISOString() }, prefer: 'return=minimal' }); },
     async getTenant(id) { return (await rest('GET', `tenants?select=*&id=${eq(id)}&limit=1`))[0] || null; },
     async listTenants() { return rest('GET', 'tenants?select=id,olist_tokens'); },
+    async listConnectedCustomers() { return rest('GET', 'customers?select=id,tenant_id&olist_tokens=not.is.null'); },
     async tenantByWebhook(token) { return (await rest('GET', `tenants?select=id,webhook_token&webhook_token=${eq(token)}&limit=1`))[0] || null; },
     async updateTenant(id, patch) { await rest('PATCH', `tenants?id=${eq(id)}`, { body: patch, prefer: 'return=minimal' }); },
     async listCustomers(tenantId) { return rest('GET', `customers?select=*&tenant_id=${eq(tenantId)}&order=legal_name.asc`); },
@@ -127,6 +128,7 @@ export function memoryRepo(seed = {}) {
     async touchLogin(id) { const u = tables.app_users.find(x => x.id === id); if (u) u.last_login_at = new Date().toISOString(); },
     async getTenant(id) { return tables.tenants.find(t => t.id === id) || null; },
     async listTenants() { return tables.tenants; },
+    async listConnectedCustomers() { return tables.customers.filter(c => c.olist_tokens); },
     async tenantByWebhook(token) { return tables.tenants.find(t => t.webhook_token && t.webhook_token === token) || null; },
     async updateTenant(id, patch) { const t = tables.tenants.find(x => x.id === id); if (t) Object.assign(t, patch); },
     async listCustomers(tenantId) { return tables.customers.filter(c => c.tenant_id === tenantId); },
