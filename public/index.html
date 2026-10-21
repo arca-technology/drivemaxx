@@ -10,7 +10,7 @@
   <header class="header">
     <a class="brand" href="/" aria-label="ENTERPRISER DRIVE MAXX"><span class="brand-mark">D<span>↗</span></span><span>ENTERPRISER <b>•</b> <strong>DRIVE MAXX</strong></span></a>
     <div class="page-tab"><span class="tab-icon" data-icon="box"></span><h1>PRODUTOS</h1></div>
-    <div class="header-actions"><span class="local-badge"><i></i> LOCAL</span><button id="theme" class="icon-button" title="Alternar modo escuro e claro" aria-label="Ativar modo escuro" data-icon="moon"></button><span class="divider"></span><button id="account" class="account-button" title="Conectar conta Olist"><span class="avatar" data-icon="user"></span><span id="account-label">Conectar conta</span><span data-icon="chevron"></span></button></div>
+    <div class="header-actions"><span class="local-badge"><i></i> LOCAL</span><button id="integrations" class="icon-button" title="Integrações" aria-label="Abrir integrações" aria-haspopup="dialog" data-icon="plug"></button><button id="theme" class="icon-button" title="Alternar modo escuro e claro" aria-label="Ativar modo escuro" data-icon="moon"></button><span class="divider"></span><button id="account" class="account-button" title="Conectar conta Olist"><span class="avatar" data-icon="user"></span><span id="account-label">Conectar conta</span><span data-icon="chevron"></span></button></div>
   </header>
 
   <main>
@@ -43,5 +43,19 @@
     <footer class="footer"><span class="footer-status"><i></i><span id="footer-label">Aguardando conexão com a Olist</span></span><div class="pagination"><span id="range">0 produtos</span><span class="footer-line"></span><label>Por página <select id="page-size" aria-label="Produtos por página"><option>50</option><option>100</option><option>200</option></select></label><button id="previous" class="icon-button small" title="Página anterior" aria-label="Página anterior" disabled data-icon="left"></button><span id="page-label">1 / 1</span><button id="next" class="icon-button small" title="Próxima página" aria-label="Próxima página" disabled data-icon="right"></button></div></footer>
   </main>
   <dialog id="account-dialog"><form method="dialog"><button class="dialog-close icon-button" aria-label="Fechar" data-icon="close"></button><span class="eyebrow">CONTA OLIST</span><h2>Conexão do catálogo</h2><p>Os produtos exibidos pertencem à conta autorizada na Olist. Ao desconectar, a sessão e os produtos serão removidos desta tela.</p><div class="dialog-actions"><button class="button" value="cancel">Voltar</button><button id="logout" type="button" class="button danger">Desconectar conta</button></div></form></dialog>
+  <dialog id="integrations-drawer" class="drawer" aria-labelledby="integrations-title">
+    <div class="drawer-body">
+      <div class="drawer-head"><h2 id="integrations-title"><span data-icon="link"></span> INTEGRAÇÕES</h2><button id="integrations-close" class="icon-button" aria-label="Fechar integrações" data-icon="close"></button></div>
+      <p class="drawer-intro">Conecte suas contas para sincronizar dados automaticamente.</p>
+      <ul class="integration-list">
+        <li class="integration">
+          <span class="integration-logo olist-logo" aria-hidden="true">o</span>
+          <span class="integration-info"><b>Olist</b><span id="olist-status" class="integration-status"><i></i><span>Verificando…</span></span></span>
+          <a id="olist-auth" class="integration-action" href="/auth/login">AUTENTICAR</a>
+          <button id="olist-disconnect" class="integration-action danger" type="button" hidden>DESCONECTAR</button>
+        </li>
+      </ul>
+    </div>
+  </dialog>
 </body>
 </html>

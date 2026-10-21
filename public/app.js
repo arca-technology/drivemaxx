@@ -16,7 +16,8 @@ const paths = {
   copy: '<rect x="8" y="8" width="12" height="13" rx="2"/><path d="M15 8V3H3v13h5"/>',
   left: '<path d="m14 6-6 6 6 6"/>',
   right: '<path d="m10 6 6 6-6 6"/>',
-  close: '<path d="m6 6 12 12M6 18 18 6"/>'
+  close: '<path d="m6 6 12 12M6 18 18 6"/>',
+  plug: '<path d="M9 2v5m6-5v5M6 7h12v4a6 6 0 0 1-12 0V7Zm6 10v5"/>'
 };
 const icon = name => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || paths.box}</svg>`;
 document.querySelectorAll('[data-icon]').forEach(el => { el.innerHTML = icon(el.dataset.icon); });
@@ -56,6 +57,9 @@ function connection(authenticated) {
   $('connect').hidden = authenticated;
   $('connect-hint').hidden = authenticated;
   $('setup').hidden = authenticated;
+  $('olist-auth').hidden = authenticated;
+  $('olist-disconnect').hidden = !authenticated;
+  if (!authenticated) olistStatus('Não autenticada');
 }
 function render() {
   const needle = normalize($('search').value.trim()), status = $('status').value;
@@ -183,6 +187,36 @@ $('export').onclick = () => {
   const url = URL.createObjectURL(new Blob([content], { type: 'text/csv;charset=utf-8;' }));
   const a = document.createElement('a'); a.href = url; a.download = `drive-maxx-produtos-${new Date().toISOString().slice(0, 10)}.csv`; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
 };
+function olistStatus(text, kind = '') {
+  const label = document.createElement('span'); label.textContent = text;
+  $('olist-status').className = `integration-status ${kind}`.trim();
+  $('olist-status').title = text;
+  $('olist-status').replaceChildren(document.createElement('i'), label);
+}
+async function checkOlist() {
+  olistStatus('Verificando…');
+  try {
+    const session = await api('/api/session');
+    if (session.authenticated !== state.authenticated) connection(session.authenticated);
+    if (!session.authenticated) return olistStatus('Não autenticada');
+    const company = await api('/api/company');
+    olistStatus(`Autenticada · ${company.razaoSocial || 'conta Olist'}`, 'ok');
+  } catch (error) {
+    if (error.status === 401) connection(false);
+    olistStatus(error.message, 'error');
+  }
+}
+const drawer = $('integrations-drawer');
+function closeDrawer() {
+  if (!drawer.open || drawer.classList.contains('closing')) return;
+  drawer.classList.add('closing');
+  setTimeout(() => { drawer.close(); drawer.classList.remove('closing'); }, 200);
+}
+$('integrations').onclick = () => { drawer.showModal(); checkOlist(); };
+$('integrations-close').onclick = closeDrawer;
+drawer.addEventListener('cancel', event => { event.preventDefault(); closeDrawer(); });
+drawer.addEventListener('click', event => { if (event.target === drawer) closeDrawer(); });
+$('olist-disconnect').onclick = () => $('account-dialog').showModal();
 async function init() {
   const auth = new URLSearchParams(location.search).get('auth');
   if (auth) {
