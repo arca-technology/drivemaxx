@@ -501,6 +501,8 @@ async function runEnrichment(generation, full = false) {
   state.enriching = true; render();
   try {
     const listed = full ? await stockListPass(generation) : false;
+    // Save early: if the page closes while variations load, the next visit resumes from here.
+    if (listed && generation === state.generation) await saveCache(cache.events.map(e => e.key));
     for (const phase of listed ? ['variations'] : ['variations', 'stock']) {
       while (generation === state.generation && await enrichStep(generation, phase)) await new Promise(done => { wake = done; setTimeout(done, 350); });
     }
