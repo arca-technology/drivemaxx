@@ -58,6 +58,7 @@ function connection(authenticated) {
   $('connect-hint').hidden = authenticated;
   $('setup').hidden = authenticated;
   $('olist-auth').hidden = authenticated;
+  $('olist-auth').textContent = 'AUTENTICAR';
   $('olist-disconnect').hidden = !authenticated;
   if (!authenticated) olistStatus('Não autenticada');
 }
@@ -80,11 +81,12 @@ function render() {
   $('empty').hidden = products.length > 0;
   if (state.authenticated) {
     $('empty-title').textContent = state.loading ? 'Buscando seus produtos...' : state.products.length ? 'Nenhum produto encontrado' : state.complete ? 'Seu catálogo está vazio' : 'Vamos carregar seu catálogo';
-    $('empty-description').textContent = state.loading ? 'Estamos consultando os produtos da sua conta Olist.' : state.products.length ? 'Tente outro nome, SKU ou situação para encontrar o produto.' : state.complete ? 'Nenhum produto foi retornado pela conta Olist autenticada.' : 'Use o botão de atualizar para consultar seus produtos.';
+    $('empty-description').textContent = state.loading ? 'Estamos consultando os produtos da sua conta Olist.' : state.products.length ? 'Tente outro nome, SKU ou situação para encontrar o produto.' : state.complete ? 'Nenhum produto foi retornado pela conta Olist autenticada.' : 'Clique em Importar produtos para buscar o catálogo da sua conta Olist.';
   } else {
     $('empty-title').textContent = 'Seus produtos. Mais perto.';
     $('empty-description').innerHTML = 'Conecte sua conta Olist para visualizar, buscar e<br> organizar todos os produtos do seu catálogo.';
   }
+  $('import').hidden = !state.authenticated || state.loading || state.products.length > 0;
   $('range').textContent = state.filtered.length ? `${number(start + 1)}–${number(start + products.length)} de ${number(state.filtered.length)}` : '0 produtos';
   $('page-label').textContent = `${state.page} / ${pages}`;
   $('previous').disabled = state.page <= 1;
@@ -146,6 +148,7 @@ async function loadProducts() {
   }
 }
 $('refresh').onclick = loadProducts;
+$('import').onclick = loadProducts;
 $('search').oninput = () => { state.page = 1; render(); };
 $('status').onchange = () => { state.page = 1; render(); };
 $('page-size').onchange = () => { state.page = 1; render(); };
@@ -204,6 +207,7 @@ async function checkOlist() {
   } catch (error) {
     if (error.status === 401) connection(false);
     olistStatus(error.message, 'error');
+    $('olist-auth').textContent = 'RECONECTAR'; $('olist-auth').hidden = false;
   }
 }
 const drawer = $('integrations-drawer');
@@ -230,7 +234,6 @@ async function init() {
     connection(data.authenticated);
     if (!data.configured) { $('connect').hidden = true; notice('As credenciais Olist ainda não foram configuradas no servidor local.', true); }
     render();
-    if (data.authenticated) await loadProducts();
   } catch { notice('Não foi possível conectar ao servidor local. Verifique se ele está em execução e recarregue a página.', true); }
 }
 init();

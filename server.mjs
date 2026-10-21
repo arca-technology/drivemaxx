@@ -47,7 +47,8 @@ export function createApp(config, fetcher = fetch) {
     let response;
     try { response = await request(); if (response.status === 401) { await refresh(session); response = await request(); } }
     catch (error) { if (error.status) throw error; throw fault(502, 'A Olist não respondeu. Tente atualizar a lista em instantes.'); }
-    if (response.status === 401) { session.tokens = null; throw fault(401, `A Olist recusou o token no endpoint ${company ? '/info (dados da empresa)' : '/produtos'}, mesmo após renovação (HTTP 401).`); }
+    // Keep the session: a 401 here can be endpoint permission, not an invalid login.
+    if (response.status === 401) throw fault(403, `A Olist recusou o token no endpoint ${company ? '/info (dados da empresa)' : '/produtos'}, mesmo após renovação (HTTP 401). Confira as permissões do aplicativo na Olist e autentique novamente.`);
     if (response.status === 403) throw fault(403, `Acesso negado pela Olist ao endpoint ${company ? '/info (dados da empresa)' : '/produtos'} (HTTP 403). Confira as permissões do aplicativo.`);
     if (response.status === 429) throw fault(429, 'Limite de consultas da Olist atingido. A lista será retomada automaticamente.', { retryAfter: Math.min(120, Math.max(5, Number(response.headers.get('retry-after')) || 30)) });
     const data = await response.json().catch(() => null);
