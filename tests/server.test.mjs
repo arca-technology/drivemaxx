@@ -243,3 +243,19 @@ test('serverless app login keeps the encrypted Olist session cookies', async t =
   assert.ok(cookies.some(c => c.startsWith('drive_app=') && !c.startsWith('drive_app=;')));
   assert.ok(cookies.some(c => c.startsWith('drive_data0=')));
 });
+test('products accept active-only filter and stock list maps Olist pages', async t => {
+  const seen = [];
+  const { get } = await setup(t, async url => {
+    url = String(url); seen.push(url);
+    if (url.endsWith('/token')) return json({ access_token: 'secret', expires_in: 3600 });
+    if (url.includes('/estoque?')) return json({ itens: [{ idProduto: 5, sku: 'A', nome: 'x', saldo: 4, reservado: 1, disponivel: 3, depositos: [] }], paginacao: { limit: 100, offset: 0, total: 1 } });
+    return json({ itens: [], paginacao: { total: 0 } });
+  });
+  const cookie = await login(get);
+  assert.equal((await get('/api/products?situacao=A', { headers: { Cookie: cookie } })).status, 200);
+  assert.ok(seen.some(u => u.includes('/produtos?') && u.includes('situacao=A')));
+  assert.equal((await get('/api/products?situacao=X', { headers: { Cookie: cookie } })).status, 400);
+  const stock = await (await get('/api/stock-list?offset=0', { headers: { Cookie: cookie } })).json();
+  assert.deepEqual(stock.itens, [{ id: 5, saldo: 4, reservado: 1, disponivel: 3 }]);
+  assert.equal(stock.paginacao.total, 1);
+});

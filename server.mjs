@@ -180,7 +180,16 @@ export function createApp(config, fetcher = fetch) {
       if (req.method === 'GET' && url.pathname === '/api/products') {
         const offset = Number(url.searchParams.get('offset') || 0), limit = Number(url.searchParams.get('limit') || 100);
         if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw fault(400, 'Paginação inválida.');
-        return send(res, 200, await olist(session, `/produtos?${new URLSearchParams({ limit, offset })}`, '/produtos', data => Array.isArray(data.itens)));
+        const situacao = url.searchParams.get('situacao');
+        if (situacao && !['A', 'I', 'E'].includes(situacao)) throw fault(400, 'Situação inválida.');
+        return send(res, 200, await olist(session, `/produtos?${new URLSearchParams({ limit, offset, ...(situacao ? { situacao } : {}) })}`, '/produtos', data => Array.isArray(data.itens)));
+      }
+      // Stock for the whole catalog in pages of 100 (one call per page, not per product).
+      if (req.method === 'GET' && url.pathname === '/api/stock-list') {
+        const offset = Number(url.searchParams.get('offset') || 0);
+        if (!Number.isSafeInteger(offset) || offset < 0) throw fault(400, 'Paginação inválida.');
+        const data = await olist(session, `/estoque?${new URLSearchParams({ limit: 100, offset })}`, '/estoque', data => Array.isArray(data.itens));
+        return send(res, 200, { itens: data.itens.map(i => ({ id: i.idProduto, saldo: i.saldo ?? null, reservado: i.reservado ?? null, disponivel: i.disponivel ?? null })), paginacao: data.paginacao });
       }
       if (req.method === 'GET' && url.pathname === '/api/stock') {
         return send(res, 200, await batch(session, idList(url.searchParams.get('ids')), pid => `/estoque/${pid}`, '/estoque', data => ({ saldo: data.saldo ?? null, reservado: data.reservado ?? null, disponivel: data.disponivel ?? null })));

@@ -110,10 +110,6 @@ function notice(message, error = false, retry = false) {
 }
 function connection(authenticated) {
   state.authenticated = authenticated;
-  $('connection').innerHTML = `<i></i> Olist ${authenticated ? 'conectada' : 'desconectada'}`;
-  $('connection').classList.toggle('connected', authenticated);
-  $('account-label').textContent = authenticated ? 'Conta conectada' : 'Conectar conta';
-  $('account').title = authenticated ? 'Gerenciar conexão Olist' : 'Conectar conta Olist';
   $('refresh').disabled = !authenticated || state.loading;
   document.querySelector('.footer-status').classList.toggle('ready', authenticated);
   $('connect').hidden = authenticated;
@@ -395,7 +391,7 @@ async function api(path, options) {
 function resetCatalog() {
   state.products = []; state.byId = new Map(); state.total = 0; state.complete = false; state.page = 1;
   state.stock = new Map(); state.children = new Map(); state.parentOf = new Map(); state.grade = new Map();
-  state.variationsDone = new Set(); state.stockDone = new Set(); state.selected.clear(); state.expanded.clear(); state.enrichNote = '';
+  state.variationsDone = new Set(); state.stockDone = new Set(); state.selected.clear(); state.expanded.clear(); state.enrichNote = ''; state.stockPages = null;
 }
 async function loadProducts() {
   if (!state.authenticated || state.loading) return;
@@ -406,7 +402,7 @@ async function loadProducts() {
   try {
     while (generation === state.generation) {
       let data;
-      try { data = await api(`/api/products?limit=100&offset=${offset}`); retries = 0; }
+      try { data = await api(`/api/products?limit=100&offset=${offset}${store.get('drive-only-active', true) ? '&situacao=A' : ''}`); retries = 0; }
       catch (error) {
         if (error.status === 429 && retries++ < 3) {
           const seconds = error.retryAfter || 30;
@@ -476,11 +472,34 @@ async function enrichStep(generation, phase) {
   render();
   return true;
 }
+// Whole-catalog stock in pages of 100. Falls back to per-product calls if the endpoint is unavailable.
+async function stockListPass(generation) {
+  let offset = 0;
+  while (generation === state.generation) {
+    let data;
+    try { data = await api(`/api/stock-list?offset=${offset}`); }
+    catch (error) {
+      if (error.status === 429) { state.enrichNote = `Limite da Olist atingido — retomando em ${error.retryAfter || 30}s`; render(); await sleep((error.retryAfter || 30) * 1000); state.enrichNote = ''; continue; }
+      if (error.status === 404 || error.status === 400) return false;
+      throw error;
+    }
+    if (generation !== state.generation) return true;
+    for (const item of data.itens) if (state.byId.has(item.id)) { state.stock.set(item.id, item); state.stockDone.add(item.id); }
+    offset += data.itens.length;
+    state.stockPages = { done: offset, total: Number(data.paginacao?.total ?? offset) };
+    render();
+    if (!data.itens.length || offset >= state.stockPages.total) break;
+    await sleep(400);
+  }
+  if (generation === state.generation) { state.products.forEach(p => state.stockDone.add(p.id)); state.stockPages = null; }
+  return true;
+}
 async function runEnrichment(generation) {
   if (state.enriching) return;
   state.enriching = true; render();
   try {
-    for (const phase of ['variations', 'stock']) {
+    const listed = await stockListPass(generation);
+    for (const phase of listed ? ['variations'] : ['variations', 'stock']) {
       while (generation === state.generation && await enrichStep(generation, phase)) await new Promise(done => { wake = done; setTimeout(done, 350); });
     }
   } catch (error) {
@@ -495,7 +514,8 @@ function renderEnrichLabel() {
   const stockTarget = state.products.filter(p => !kidsOf(p.id).length).length;
   const parts = [];
   if (state.complete && parents) parts.push(`Variações ${number(state.variationsDone.size)}/${number(parents)}`);
-  if (state.complete && stockTarget) parts.push(`Estoque ${number(Math.min(state.stockDone.size, stockTarget))}/${number(stockTarget)}`);
+  if (state.stockPages) parts.push(`Estoque ${number(state.stockPages.done)}/${number(state.stockPages.total)}`);
+  else if (state.complete && stockTarget) parts.push(`Estoque ${number(Math.min(state.stockDone.size, stockTarget))}/${number(stockTarget)}`);
   if (state.enrichNote) parts.push(state.enrichNote);
   $('enrich-label').textContent = parts.join(' · ');
   $('enrich-label').classList.toggle('busy', state.enriching);
@@ -509,6 +529,8 @@ $('page-size').value = String(store.get('drive-page-size', 50));
 $('default-page-size').value = $('page-size').value;
 $('page-size').onchange = () => { state.page = 1; render(); prioritizeEnrichment(); };
 $('default-page-size').onchange = () => { store.set('drive-page-size', Number($('default-page-size').value)); $('page-size').value = $('default-page-size').value; state.page = 1; render(); };
+$('only-active').checked = store.get('drive-only-active', true);
+$('only-active').onchange = () => store.set('drive-only-active', $('only-active').checked);
 $('auto-enrich').checked = store.get('drive-auto-enrich', true);
 $('auto-enrich').onchange = () => { store.set('drive-auto-enrich', $('auto-enrich').checked); if ($('auto-enrich').checked && state.complete) runEnrichment(state.generation); };
 function goTo(page) { state.page = page; render(); document.querySelector('.table-region').scrollTop = 0; prioritizeEnrichment(); }
@@ -517,7 +539,6 @@ $('previous').onclick = () => goTo(state.page - 1);
 $('next').onclick = () => goTo(state.page + 1);
 $('last').onclick = () => goTo(Infinity);
 document.addEventListener('keydown', event => { if (event.key === '/' && !/INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName) && !document.querySelector('dialog[open]')) { event.preventDefault(); $('search').focus(); } });
-$('account').onclick = () => state.authenticated ? $('account-dialog').showModal() : location.assign('/auth/login');
 $('logout').onclick = async () => {
   $('logout').disabled = true;
   try {
