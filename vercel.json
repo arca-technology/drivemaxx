@@ -4,12 +4,36 @@
   "buildCommand": "",
   "outputDirectory": "public",
   "functions": {
-    "api/index.mjs": { "includeFiles": "public/**", "maxDuration": 60 }
+    "api/index.mjs": {
+      "includeFiles": "public/**",
+      "maxDuration": 60
+    }
   },
   "routes": [
-    { "src": "^/$", "dest": "/api/index" },
-    { "src": "^/auth/.*$", "dest": "/api/index" },
-    { "src": "^/api/.*$", "dest": "/api/index" },
-    { "handle": "filesystem" }
+    {
+      "src": "^/$",
+      "dest": "/api/index"
+    },
+    {
+      "src": "^/auth/.*$",
+      "dest": "/api/index"
+    },
+    {
+      "src": "^/api/.*$",
+      "dest": "/api/index"
+    },
+    {
+      "handle": "filesystem"
+    }
+  ],
+  "crons": [
+    {
+      "path": "/api/cron/olist-refresh",
+      "schedule": "0 3 * * *"
+    },
+    {
+      "path": "/api/cron/olist-refresh?turno=2",
+      "schedule": "0 15 * * *"
+    }
   ]
 }

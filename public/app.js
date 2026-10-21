@@ -24,7 +24,10 @@ const paths = {
   plug: '<path d="M9 2v5m6-5v5M6 7h12v4a6 6 0 0 1-12 0V7Zm6 10v5"/>',
   settings: '<path d="M4 6h9m4 0h3M4 12h3m4 0h9M4 18h11m4 0h1"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/>',
   logout: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/>',
-  columns: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16M15 4v16"/>'
+  columns: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16M15 4v16"/>',
+  bag: '<path d="M5 8h14l-1 13H6L5 8Z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/>',
+  users: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20v-1.5a6.5 6.5 0 0 1 13 0V20M16 4.5a3.5 3.5 0 0 1 0 7M18 14a6.5 6.5 0 0 1 3.5 5.8V20"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>'
 };
 const icon = name => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || paths.box}</svg>`;
 document.querySelectorAll('[data-icon]').forEach(el => { el.innerHTML = icon(el.dataset.icon); });
@@ -34,7 +37,8 @@ const state = {
   authenticated: false, products: [], byId: new Map(), total: 0, complete: false, loading: false, generation: 0, page: 1, sort: 'descricao', direction: 1,
   filters: {}, selected: new Set(), expanded: new Set(), hierarchy: new Set(['parent', 'variations']),
   stock: new Map(), children: new Map(), parentOf: new Map(), grade: new Map(), variationsDone: new Set(), stockDone: new Set(),
-  visibleIds: [], enriching: false, enrichNote: ''
+  visibleIds: [], enriching: false, enrichNote: '',
+  role: 'admin', database: false, settings: new Map(), defaultMargin: 0
 };
 const money = value => value == null || value === '' ? '—' : new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(value));
 const escape = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
@@ -56,6 +60,16 @@ function stockOf(p, field = 'disponivel') {
   return own ? own[field] : null;
 }
 
+// ── Buyer price (cost + margin) and admin product settings ───
+const settingOf = p => state.settings.get(p.id) || { visible: true, margin: null };
+function buyerPriceOf(p) {
+  if (state.role === 'buyer') return p.precoComprador ?? null;
+  const cost = Number(p.precos?.precoCusto) > 0 ? Number(p.precos.precoCusto) : Number(p.precos?.precoCustoMedio) > 0 ? Number(p.precos.precoCustoMedio) : null;
+  if (cost == null) return null;
+  const margin = settingOf(p).margin ?? state.defaultMargin;
+  return Math.round(cost * (1 + Number(margin) / 100) * 100) / 100;
+}
+
 // ── Columns ──────────────────────────────────────────────────
 const SITUATION = { A: 'Ativo', I: 'Inativo', E: 'Excluído' };
 const TYPE = { S: 'Simples', K: 'Kit', V: 'Com variações', F: 'Fabricado', M: 'Matéria-prima', P: 'Produto' };
@@ -67,24 +81,28 @@ const COLUMNS = [
     return `<div class="product-cell"><span class="product-icon">${icon('box')}</span><span class="product-text"><span class="product-name">${escape(p.descricao || 'Produto sem descrição')}</span><span class="product-sub">${escape(sub)}${kids ? ` · ${kids} variações` : ''}</span></span></div>`;
   } },
   { key: 'sku', label: 'CÓDIGO / SKU', width: 160, mono: true, value: p => p.sku || '' },
-  { key: 'situacao', label: 'SITUAÇÃO', width: 120, value: p => SITUATION[p.situacao] || 'Não informado', render: p => `<span class="status-pill ${p.situacao === 'E' ? 'deleted' : p.situacao !== 'A' ? 'inactive' : ''}"><i></i>${SITUATION[p.situacao] || 'Não informado'}</span>` },
+  { key: 'situacao', roles: ['admin'], label: 'SITUAÇÃO', width: 120, value: p => SITUATION[p.situacao] || 'Não informado', render: p => `<span class="status-pill ${p.situacao === 'E' ? 'deleted' : p.situacao !== 'A' ? 'inactive' : ''}"><i></i>${SITUATION[p.situacao] || 'Não informado'}</span>` },
   { key: 'disponivel', label: 'ESTOQUE DISPONÍVEL', width: 150, numeric: true, value: p => stockOf(p), render: p => { const v = stockOf(p), kids = kidsOf(p.id); const done = kids.length ? kids.every(k => state.stockDone.has(k)) : state.stockDone.has(p.id); return v == null ? `<span class="pending" title="${done ? 'Sem estoque informado' : 'Carregando estoque'}">${done ? '—' : '···'}</span>` : `<b class="${v <= 0 ? 'stock-out' : ''}">${qty(v)}</b>`; } },
-  { key: 'saldo', label: 'SALDO EM ESTOQUE', width: 140, numeric: true, hidden: true, value: p => stockOf(p, 'saldo'), render: p => qty(stockOf(p, 'saldo')) },
-  { key: 'reservado', label: 'RESERVADO', width: 120, numeric: true, hidden: true, value: p => stockOf(p, 'reservado'), render: p => qty(stockOf(p, 'reservado')) },
-  { key: 'preco', label: 'PREÇO DE VENDA', width: 145, numeric: true, value: p => p.precos?.preco ?? null, render: p => money(p.precos?.preco) },
-  { key: 'precoPromocional', label: 'PREÇO PROMOCIONAL', width: 150, numeric: true, value: p => p.precos?.precoPromocional ?? null, render: p => money(p.precos?.precoPromocional) },
-  { key: 'precoCusto', label: 'PREÇO DE CUSTO', width: 140, numeric: true, value: p => p.precos?.precoCusto ?? null, render: p => money(p.precos?.precoCusto) },
+  { key: 'precoComprador', label: 'PREÇO COMPRADOR', width: 150, numeric: true, database: true, value: p => buyerPriceOf(p), render: p => { const v = buyerPriceOf(p); return v == null ? '<span class="pending" title="Sem custo cadastrado na Olist">—</span>' : `<b>${money(v)}</b>`; } },
+  { key: 'visivel', label: 'VISÍVEL', width: 100, roles: ['admin'], database: true, value: p => settingOf(p).visible ? 'Sim' : 'Não', render: p => { const on = settingOf(p).visible; return `<button class="toggle${on ? ' on' : ''}" type="button" role="switch" aria-checked="${on}" data-visible="${p.id}" title="${on ? 'Visível para compradores' : 'Oculto para compradores'}"><i></i></button>`; } },
+  { key: 'margem', label: 'MARGEM %', width: 120, numeric: true, roles: ['admin'], database: true, value: p => settingOf(p).margin, render: p => { const m = settingOf(p).margin; return `<input class="margin-input" type="number" step="0.01" data-margin="${p.id}" value="${m ?? ''}" placeholder="${escape(String(state.defaultMargin))}" aria-label="Margem de ${escape(p.descricao)}">`; } },
+  { key: 'saldo', roles: ['admin'], label: 'SALDO EM ESTOQUE', width: 140, numeric: true, hidden: true, value: p => stockOf(p, 'saldo'), render: p => qty(stockOf(p, 'saldo')) },
+  { key: 'reservado', roles: ['admin'], label: 'RESERVADO', width: 120, numeric: true, hidden: true, value: p => stockOf(p, 'reservado'), render: p => qty(stockOf(p, 'reservado')) },
+  { key: 'preco', roles: ['admin'], label: 'PREÇO DE VENDA', width: 145, numeric: true, value: p => p.precos?.preco ?? null, render: p => money(p.precos?.preco) },
+  { key: 'precoPromocional', roles: ['admin'], label: 'PREÇO PROMOCIONAL', width: 150, numeric: true, value: p => p.precos?.precoPromocional ?? null, render: p => money(p.precos?.precoPromocional) },
+  { key: 'precoCusto', roles: ['admin'], label: 'PREÇO DE CUSTO', width: 140, numeric: true, value: p => p.precos?.precoCusto ?? null, render: p => money(p.precos?.precoCusto) },
   { key: 'unidade', label: 'UNIDADE', width: 100, value: p => p.unidade || '' },
   { key: 'gtin', label: 'GTIN / EAN', width: 160, mono: true, value: p => p.gtin || '' },
-  { key: 'tipo', label: 'TIPO', width: 130, value: p => TYPE[p.tipo] || p.tipo || '' },
-  { key: 'tipoVariacao', label: 'VARIAÇÃO', width: 120, value: p => VARIATION[p.tipoVariacao] || p.tipoVariacao || '' },
-  { key: 'localizacao', label: 'LOCALIZAÇÃO', width: 140, value: p => p.estoque?.localizacao || '' },
-  { key: 'dataAlteracao', label: 'ÚLTIMA ALTERAÇÃO', width: 150, value: p => p.dataAlteracao || '', render: p => escape(date(p.dataAlteracao)) },
-  { key: 'id', label: 'ID OLIST', width: 130, mono: true, value: p => p.id }
+  { key: 'tipo', roles: ['admin'], label: 'TIPO', width: 130, value: p => TYPE[p.tipo] || p.tipo || '' },
+  { key: 'tipoVariacao', roles: ['admin'], label: 'VARIAÇÃO', width: 120, value: p => VARIATION[p.tipoVariacao] || p.tipoVariacao || '' },
+  { key: 'localizacao', roles: ['admin'], label: 'LOCALIZAÇÃO', width: 140, value: p => p.estoque?.localizacao || '' },
+  { key: 'dataAlteracao', roles: ['admin'], label: 'ÚLTIMA ALTERAÇÃO', width: 150, value: p => p.dataAlteracao || '', render: p => escape(date(p.dataAlteracao)) },
+  { key: 'id', roles: ['admin'], label: 'ID OLIST', width: 130, mono: true, value: p => p.id }
 ];
 const columnByKey = Object.fromEntries(COLUMNS.map(c => [c.key, c]));
 let visibility = store.get('drive-cols-v1', {});
-const visibleColumns = () => COLUMNS.filter(c => c.fixed || (c.key in visibility ? visibility[c.key] : !c.hidden));
+const allowedColumns = () => COLUMNS.filter(c => (!c.roles || c.roles.includes(state.role)) && (!c.database || state.database));
+const visibleColumns = () => allowedColumns().filter(c => c.fixed || (c.key in visibility ? visibility[c.key] : !c.hidden));
 const cellText = (p, c) => { const v = c.value(p); return v == null ? '' : String(v); };
 
 // ── Theme ────────────────────────────────────────────────────
@@ -233,6 +251,7 @@ function render() {
   $('export').disabled = state.loading || !state.complete || (!view.length && !state.selected.size);
   renderFilterBar();
   renderEnrichLabel();
+  if (typeof afterRender === 'function') afterRender();
 }
 function allViewIds() { return view.flatMap(g => [g.row.id, ...g.kids.map(k => k.id)]); }
 
@@ -328,7 +347,7 @@ function openGroupFilter(th) {
   setTimeout(() => pop.querySelector('input')?.focus(), 20);
 }
 function openColumnManager(anchor) {
-  const pop = openPopover(anchor, `<div class="popover-head"><b>COLUNAS</b><span>${visibleColumns().length} visíveis</span></div><div class="pop-list tall">${COLUMNS.map(c => `<label class="pop-item"><input type="checkbox" value="${c.key}"${visibleColumns().includes(c) ? ' checked' : ''}${c.fixed ? ' disabled' : ''}><span>${escape(c.label)}</span></label>`).join('')}</div><div class="popover-actions"><button id="cols-reset" class="pop-btn" type="button">Restaurar padrão</button></div>`, 250);
+  const pop = openPopover(anchor, `<div class="popover-head"><b>COLUNAS</b><span>${visibleColumns().length} visíveis</span></div><div class="pop-list tall">${allowedColumns().map(c => `<label class="pop-item"><input type="checkbox" value="${c.key}"${visibleColumns().includes(c) ? ' checked' : ''}${c.fixed ? ' disabled' : ''}><span>${escape(c.label)}</span></label>`).join('')}</div><div class="popover-actions"><button id="cols-reset" class="pop-btn" type="button">Restaurar padrão</button></div>`, 250);
   pop.addEventListener('change', event => { visibility[event.target.value] = event.target.checked; store.set('drive-cols-v1', visibility); pop.querySelector('.popover-head span').textContent = `${visibleColumns().length} visíveis`; render(); });
   pop.querySelector('#cols-reset').onclick = () => { visibility = {}; store.set('drive-cols-v1', visibility); closePopover(); render(); };
 }
@@ -551,6 +570,8 @@ function hydrate(c) {
   state.stockComplete = !!c.stockComplete;
   (state.stockComplete ? state.products.map(p => p.id) : [...state.stock.keys()]).forEach(id => state.stockDone.add(id));
   state.total = state.products.length; state.complete = true; state.syncedAt = c.syncedAt || null;
+  state.settings = new Map(c.settings || []);
+  if (c.defaultMargin != null) state.defaultMargin = Number(c.defaultMargin) || 0;
 }
 function removeProduct(id) {
   state.byId.delete(id); state.products = state.products.filter(p => p.id !== id);
@@ -656,6 +677,13 @@ function csvCell(value) {
 $('export').onclick = () => {
   const ids = state.selected.size ? [...state.selected] : allViewIds();
   const products = ids.map(id => state.byId.get(id)).filter(Boolean);
+  if (state.role !== 'admin') {
+    const cols = visibleColumns();
+    const content = '\uFEFF' + [cols.map(c => c.label), ...products.map(p => cols.map(c => c.value(p)))].map(row => row.map(csvCell).join(';')).join('\r\n');
+    const url = URL.createObjectURL(new Blob([content], { type: 'text/csv;charset=utf-8;' }));
+    const a = document.createElement('a'); a.href = url; a.download = `catalogo-${new Date().toISOString().slice(0, 10)}.csv`; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+    return;
+  }
   const columns = ['Produto', 'SKU', 'Situação', 'Estoque disponível', 'Saldo em estoque', 'Reservado', 'Preço de venda', 'Preço promocional', 'Preço de custo', 'Unidade', 'GTIN', 'Tipo', 'Variação', 'ID produto pai', 'Grade', 'Localização', 'Última alteração', 'ID Olist'];
   const rows = products.map(p => [p.descricao, p.sku, p.situacao, stockOf(p), stockOf(p, 'saldo'), stockOf(p, 'reservado'), p.precos?.preco, p.precos?.precoPromocional, p.precos?.precoCusto, p.unidade, p.gtin, p.tipo, p.tipoVariacao, state.parentOf.get(p.id), state.grade.get(p.id), p.estoque?.localizacao, p.dataAlteracao, p.id]);
   const content = '﻿' + [columns, ...rows].map(row => row.map(csvCell).join(';')).join('\r\n');
@@ -714,7 +742,13 @@ async function init() {
     history.replaceState(null, '', '/');
   }
   try {
-    const [data, me, saved] = await Promise.all([api('/api/session'), api('/api/me').catch(() => ({})), api('/api/cache').catch(() => null)]);
+    const me = await api('/api/me');
+    state.role = me.role || 'admin'; state.database = !!me.database; state.defaultMargin = Number(me.tenant?.defaultMargin || 0);
+    if (typeof applyRole === 'function') applyRole(me);
+    $('app-user').textContent = me.name || me.user || '—';
+    $('app-logout').hidden = $('settings-logout').hidden = !me.gate;
+    if (state.role !== 'admin') return initBuyer();
+    const [data, saved] = await Promise.all([api('/api/session'), api('/api/cache').catch(() => null)]);
     if (saved) {
       cache.storage = saved.storage; cache.events = saved.events || [];
       if (saved.catalog?.products?.length) {
@@ -723,8 +757,6 @@ async function init() {
         $('footer-label').textContent = `${number(state.products.length)} produtos do cache · Olist ERP`;
       }
     }
-    $('app-user').textContent = me.user || '—';
-    $('app-logout').hidden = $('settings-logout').hidden = !me.gate;
     $('callback').textContent = data.redirectUri;
     connection(data.authenticated);
     if (!data.configured) { $('connect').hidden = true; notice('As credenciais Olist ainda não foram configuradas no servidor.', true); }

@@ -111,4 +111,74 @@ html[data-theme=dark] .login-error{background:#38211f;color:#ffb6a9}
 .filterbar{height:28px;padding:0 16px}
 .filter-chip,.clear-filters{height:20px}
 @media(max-width:760px){.toolbar{height:auto;padding:6px 12px;flex-wrap:wrap}}
+/* ── Modules: tabs, orders, users, bag ── */
+.page-tabs{display:flex;align-items:stretch;height:60px}
+.page-tabs .page-tab{border:0;border-bottom:3px solid transparent;background:transparent;color:var(--muted);font-size:11px;letter-spacing:1.1px;font-weight:750;padding:0 20px}
+.page-tabs .page-tab.active{border-bottom-color:var(--cyan);color:var(--text)}
+.page-tabs .page-tab:hover:not(.active){color:var(--text)}
+.page-tabs .page-tab svg{width:15px}
+main[hidden]{display:none!important}
+.bulk-actions{display:inline-flex;gap:4px}
+.bulk-button{height:24px;padding:0 9px;border:1px solid var(--line);border-radius:5px;background:var(--bg);font-size:10px;font-weight:600;white-space:nowrap}
+.bulk-button:hover{border-color:var(--blue);color:var(--blue)}
+.bag-button{background:#2563eb;border-color:#2563eb;color:#fff}
+.bag-button b{min-width:18px;padding:0 5px;border-radius:9px;background:#fff3;font-size:10px}
+.bag-button:disabled{background:var(--bg);border-color:var(--line);color:var(--muted)}
+.primary-small{height:28px;padding:0 12px;background:#2563eb;border-color:#2563eb;color:#fff}
+.toggle{position:relative;width:34px;height:18px;padding:0;border:0;border-radius:9px;background:var(--line);vertical-align:middle}
+.toggle i{position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:#fff;transition:transform .15s}
+.toggle.on{background:var(--green)}
+.toggle.on i{transform:translateX(16px)}
+.margin-input{width:80px;height:26px;padding:0 7px;border:1px solid var(--line);border-radius:5px;background:var(--bg);color:var(--text);font-size:11px;text-align:right}
+.margin-input:focus{outline:none;border-color:var(--blue)}
+.margin-input::placeholder{color:var(--muted)}
+.module-notice{padding:9px 24px;border-bottom:1px solid var(--line);background:var(--blue-soft);font-size:11px}
+.module-notice.error{color:#b74e42;background:#fff3ef}
+html[data-theme=dark] .module-notice.error{color:#ffb6a9;background:#38211f}
+.module-table{min-width:900px;table-layout:auto}
+.module-table thead th{cursor:default;height:36px}
+.module-table td{height:50px;cursor:default}
+.module-table td small,.bag-table td small{display:block;color:var(--muted);font-size:9px;margin-top:2px}
+.module-table tbody tr[data-order]{cursor:pointer}
+.module-table td.actions{display:flex;gap:6px;justify-content:flex-end;align-items:center;height:50px}
+.module-empty{margin:0;padding:60px 20px;text-align:center;color:var(--muted);font-size:12px}
+.status-tag{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:4px;background:var(--blue-soft);color:var(--blue);font-size:10px;font-weight:600;white-space:nowrap}
+.status-tag.ok{background:#eaf6f0;color:#258260}
+.status-tag.error{background:#ffede8;color:#aa5844}
+.status-tag.muted{background:var(--head);color:var(--muted)}
+html[data-theme=dark] .status-tag.ok{background:#19372e;color:#6bdbb6}
+html[data-theme=dark] .status-tag.error{background:#392a24;color:#e8a18b}
+dialog.modal{width:min(760px,calc(100vw - 32px));max-width:none;padding:0;border-radius:12px}
+dialog.modal::backdrop{background:#0d172a70;backdrop-filter:blur(3px)}
+.modal-body{display:flex;flex-direction:column;max-height:min(86vh,760px)}
+.modal-head{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--line)}
+.modal-head h2{display:flex;align-items:center;gap:8px;margin:0;font-size:15px}
+.modal-head h2 svg{color:var(--blue)}
+.modal-scroll{overflow:auto;padding:4px 18px;flex:1;min-height:60px}
+.modal-foot{display:flex;align-items:center;justify-content:flex-end;gap:8px;padding:12px 18px;border-top:1px solid var(--line)}
+.bag-total{margin-right:auto;font-size:12px;color:var(--muted)}
+.bag-total b{font-size:16px;color:var(--text);margin-left:6px}
+.bag-table{width:100%;min-width:0;table-layout:auto;font-size:11px}
+.bag-table th{position:static;height:32px;padding:0 8px;background:transparent;border-right:0;font-size:9px}
+.bag-table td{height:44px;padding:4px 8px;border-right:0;background:transparent!important;white-space:normal}
+.qty-input{width:80px;height:28px;padding:0 7px;border:1px solid var(--line);border-radius:5px;background:var(--bg);color:var(--text);text-align:right}
+.qty-input:focus{outline:none;border-color:var(--blue)}
+.field{display:flex;flex-direction:column;gap:5px;padding:8px 18px;font-size:11px;font-weight:600}
+.form-grid .field{padding:6px 0}
+.field input,.field select,.field textarea{min-height:34px;padding:7px 10px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--text);font:inherit;font-weight:400;font-size:12px}
+.field input:focus,.field select:focus,.field textarea:focus{outline:none;border-color:var(--blue)}
+.field-row{display:flex;gap:6px}.field-row input{flex:1}
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:4px 14px;padding:10px 18px}
+.form-grid>.field:first-child,.customer-box{grid-column:1/-1}
+.company-card{display:flex;flex-direction:column;gap:2px;margin-top:4px;padding:10px 12px;border:1px solid var(--line);border-left:3px solid var(--green);border-radius:6px;background:var(--surface);font-size:11px}
+.company-card span{color:var(--text)}.company-card small{color:var(--muted)}
+.form-error{margin:0 18px;padding:8px 10px;border-radius:6px;background:#fbeceb;color:#b74e42;font-size:11px}
+html[data-theme=dark] .form-error{background:#38211f;color:#ffb6a9}
+.order-meta{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;padding:12px 18px;border-bottom:1px solid var(--line);font-size:11px}
+.order-meta div{display:flex;flex-direction:column;gap:3px;min-width:0}
+.order-meta span{color:var(--muted);font-size:9px;letter-spacing:.8px;text-transform:uppercase}
+.order-meta small{color:var(--muted);font-size:10px}
+.order-meta .wide{grid-column:1/-1}
+.settings-number{width:90px;height:28px;padding:0 7px;border:1px solid var(--line);border-radius:5px;background:var(--bg);color:var(--text);text-align:right}
+@media(max-width:760px){.page-tabs .page-tab{padding:0 8px;font-size:9px}.page-tabs .page-tab .tab-icon{display:none}.form-grid{grid-template-columns:1fr}.order-meta{grid-template-columns:1fr 1fr}}
 

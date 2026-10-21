@@ -19,4 +19,5 @@ form.addEventListener('submit', async event => {
     submit.disabled = false; submit.textContent = 'Entrar';
   }
 });
+if (new URLSearchParams(location.search).get('login') === 'invalid') { error.textContent = 'Usuário ou senha inválidos.'; error.hidden = false; history.replaceState(null, '', '/'); }
 document.getElementById('login-user').focus();
