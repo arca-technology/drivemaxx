@@ -1,6 +1,6 @@
 import http from 'node:http';
 import { readFile } from 'node:fs/promises';
-import { randomBytes, createHash } from 'node:crypto';
+import { randomBytes, createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { resolve, dirname } from 'node:path';
 import { cookieSessions } from './session.mjs';
@@ -18,6 +18,32 @@ export function createApp(config, fetcher = fetch) {
   const origin = new URL(config.redirectUri).origin;
   const secure = origin.startsWith('https:');
   const cookie = (value, age = 86400) => `drive_session=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${age}${secure ? '; Secure' : ''}`;
+  // App access (username/password). Disabled only when no credentials are configured (local dev).
+  const gate = !!(config.appUser && config.appPassword);
+  const appSecret = config.sessionSecret || randomBytes(32).toString('hex');
+  const appCookie = (value, age = 7 * 86400) => `drive_app=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${age}${secure ? '; Secure' : ''}`;
+  const sign = data => createHmac('sha256', appSecret).update(`drive-app-v1.${data}`).digest('base64url');
+  const same = (a, b) => timingSafeEqual(createHash('sha256').update(String(a)).digest(), createHash('sha256').update(String(b)).digest());
+  function appToken(user) {
+    const payload = Buffer.from(JSON.stringify({ u: user, exp: Date.now() + 7 * 86400000 })).toString('base64url');
+    return `${payload}.${sign(payload)}`;
+  }
+  function appUser(req) {
+    const raw = (req.headers.cookie || '').split(';').map(v => v.trim()).find(v => v.startsWith('drive_app='))?.slice('drive_app='.length) || '';
+    const [payload, signature] = raw.split('.');
+    if (!payload || !signature || !same(signature, sign(payload))) return null;
+    try { const data = JSON.parse(Buffer.from(payload, 'base64url')); return data.exp > Date.now() ? data.u : null; } catch { return null; }
+  }
+  async function readJson(req) {
+    let body = '';
+    for await (const chunk of req) { body += chunk; if (body.length > 4096) throw fault(413, 'Requisição muito grande.'); }
+    try { return JSON.parse(body || '{}'); } catch { throw fault(400, 'Requisição inválida.'); }
+  }
+  const idList = value => {
+    const ids = String(value || '').split(',').filter(Boolean).map(Number);
+    if (!ids.length || ids.length > 20 || !ids.every(n => Number.isSafeInteger(n) && n > 0)) throw fault(400, 'Lista de produtos inválida.');
+    return [...new Set(ids)];
+  };
   function send(res, status, body, headers = {}) {
     res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', ...headers });
     res.end(JSON.stringify(body));
@@ -50,7 +76,7 @@ export function createApp(config, fetcher = fetch) {
     try { const d = JSON.parse(body); reason = d.mensagem || d.message || d.error_description || d.error || d.detalhes?.[0]?.mensagem || ''; } catch {}
     return typeof reason === 'string' && reason ? `: ${reason.slice(0, 200)}` : '';
   }
-  async function olist(session, path, company = false) {
+  async function olist(session, path, label, valid) {
     if (!session?.tokens) throw fault(401, 'Conecte sua conta Olist para consultar os produtos.');
     if (session.tokens.expiresAt < Date.now() + 30000) await refresh(session);
     const request = () => fetcher(`${API}${path}`, { headers: { Authorization: `Bearer ${session.tokens.access_token}`, Accept: 'application/json' }, signal: AbortSignal.timeout(30000) });
@@ -58,13 +84,28 @@ export function createApp(config, fetcher = fetch) {
     try { response = await request(); if (response.status === 401) { await refresh(session); response = await request(); } }
     catch (error) { if (error.status) throw error; throw fault(502, 'A Olist não respondeu. Tente atualizar a lista em instantes.'); }
     // Keep the session: a 401 here can be endpoint permission, not an invalid login.
-    if (response.status === 401) throw fault(403, `A Olist recusou o token no endpoint ${company ? '/info (dados da empresa)' : '/produtos'} (HTTP 401)${await rejection(response, session, path)}.`);
-    if (response.status === 403) throw fault(403, `Acesso negado pela Olist ao endpoint ${company ? '/info (dados da empresa)' : '/produtos'} (HTTP 403)${await rejection(response, session, path)}.`);
+    if (response.status === 401) throw fault(403, `A Olist recusou o token no endpoint ${label} (HTTP 401)${await rejection(response, session, path)}.`);
+    if (response.status === 403) throw fault(403, `Acesso negado pela Olist ao endpoint ${label} (HTTP 403)${await rejection(response, session, path)}.`);
     if (response.status === 429) throw fault(429, 'Limite de consultas da Olist atingido. A lista será retomada automaticamente.', { retryAfter: Math.min(120, Math.max(5, Number(response.headers.get('retry-after')) || 30)) });
     const data = await response.json().catch(() => null);
-    if (!response.ok) throw fault(502, 'Não foi possível consultar os produtos na Olist. Tente novamente.');
-    if (!data || (company ? typeof data.razaoSocial !== 'string' : !Array.isArray(data.itens))) throw fault(502, 'A Olist retornou dados em formato inesperado.');
+    if (response.status === 404) throw fault(404, `Registro não encontrado na Olist (${label}).`);
+    if (!response.ok) throw fault(502, `Não foi possível consultar ${label} na Olist. Tente novamente.`);
+    if (!data || !valid(data)) throw fault(502, 'A Olist retornou dados em formato inesperado.');
     return data;
+  }
+  // Fetches one Olist record per id, stopping early on rate limit so the client can resume.
+  async function batch(session, ids, path, label, pick) {
+    const items = {};
+    for (const pid of ids) {
+      try { items[pid] = pick(await olist(session, path(pid), label, data => typeof data === 'object')); }
+      catch (error) {
+        if (error.status === 429) return { items, retryAfter: error.retryAfter };
+        if (error.status === 404) { items[pid] = null; continue; }
+        if (Object.keys(items).length) return { items, error: error.message };
+        throw error;
+      }
+    }
+    return { items };
   }
   return http.createServer(async (req, res) => {
     const sessions = config.serverless ? cookieSessions(req, res, config.sessionSecret, secure) : localSessions;
@@ -84,6 +125,28 @@ export function createApp(config, fetcher = fetch) {
       const session = sessions.get(sid);
       if (session) session.lastSeen = Date.now();
       for (const [key, value] of sessions) if (Date.now() - value.lastSeen > 86400000) sessions.delete(key);
+      const user = gate ? appUser(req) : 'local';
+      if (req.method === 'POST' && url.pathname === '/auth/app-login') {
+        if (req.headers.origin !== origin) throw fault(403, 'Origem inválida.');
+        const body = await readJson(req);
+        const ok = gate && (same(body.username ?? '', config.appUser) & same(body.password ?? '', config.appPassword)) === 1; // no short-circuit: constant time
+        if (!ok) { await new Promise(done => setTimeout(done, 600)); throw fault(401, 'Usuário ou senha inválidos.'); }
+        res.setHeader('Set-Cookie', appCookie(appToken(config.appUser)));
+        return send(res, 200, { ok: true });
+      }
+      if (req.method === 'POST' && url.pathname === '/auth/app-logout') {
+        if (req.headers.origin !== origin) throw fault(403, 'Origem inválida.');
+        res.setHeader('Set-Cookie', appCookie('', 0));
+        return send(res, 200, { ok: true });
+      }
+      const pages = { '/': ['public/index.html', 'text/html'], '/app.js': ['public/app.js', 'text/javascript'], '/login.js': ['public/login.js', 'text/javascript'], '/styles.css': ['public/styles.css', 'text/css'], '/favicon.svg': ['public/favicon.svg', 'image/svg+xml'] };
+      if (!user) {
+        if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '/login')) {
+          res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }); return res.end(await readFile(resolve(root, 'public/login.html')));
+        }
+        if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/auth/') || url.pathname === '/') throw fault(401, 'Faça login para continuar.', { login: true });
+      }
+      if (req.method === 'GET' && url.pathname === '/api/me') return send(res, 200, { user, gate });
       if (req.method === 'GET' && url.pathname === '/api/session') return send(res, 200, { authenticated: !!session?.tokens, redirectUri: config.redirectUri, configured: !!(config.clientId && config.clientSecret) });
       if (req.method === 'GET' && url.pathname === '/auth/login') {
         if (!config.clientId || !config.clientSecret) throw fault(503, 'Configure OLIST_CLIENT_ID e OLIST_CLIENT_SECRET no servidor.');
@@ -112,27 +175,32 @@ export function createApp(config, fetcher = fetch) {
         sessions.delete(sid); return send(res, 200, { ok: true }, { 'Set-Cookie': cookie('', 0) });
       }
       if (req.method === 'GET' && url.pathname === '/api/company') {
-        return send(res, 200, await olist(session, '/info', true));
+        return send(res, 200, await olist(session, '/info', '/info (dados da empresa)', data => typeof data.razaoSocial === 'string'));
       }
       if (req.method === 'GET' && url.pathname === '/api/products') {
         const offset = Number(url.searchParams.get('offset') || 0), limit = Number(url.searchParams.get('limit') || 100);
         if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw fault(400, 'Paginação inválida.');
-        return send(res, 200, await olist(session, `/produtos?${new URLSearchParams({ limit, offset })}`));
+        return send(res, 200, await olist(session, `/produtos?${new URLSearchParams({ limit, offset })}`, '/produtos', data => Array.isArray(data.itens)));
       }
-      const files = { '/': ['public/index.html', 'text/html'], '/app.js': ['public/app.js', 'text/javascript'], '/styles.css': ['public/styles.css', 'text/css'], '/favicon.svg': ['public/favicon.svg', 'image/svg+xml'] };
-      if (req.method === 'GET' && files[url.pathname]) {
-        const [file, type] = files[url.pathname];
+      if (req.method === 'GET' && url.pathname === '/api/stock') {
+        return send(res, 200, await batch(session, idList(url.searchParams.get('ids')), pid => `/estoque/${pid}`, '/estoque', data => ({ saldo: data.saldo ?? null, reservado: data.reservado ?? null, disponivel: data.disponivel ?? null })));
+      }
+      if (req.method === 'GET' && url.pathname === '/api/variations') {
+        return send(res, 200, await batch(session, idList(url.searchParams.get('ids')), pid => `/produtos/${pid}`, '/produtos/{id}', data => (Array.isArray(data.variacoes) ? data.variacoes : []).map(v => ({ id: v.id, grade: Array.isArray(v.grade) ? v.grade.map(g => `${g.chave}: ${g.valor}`).join(' · ') : '' }))));
+      }
+      if (req.method === 'GET' && pages[url.pathname]) {
+        const [file, type] = pages[url.pathname];
         const body = await readFile(resolve(root, file));
         res.writeHead(200, { 'Content-Type': `${type}; charset=utf-8` }); return res.end(body);
       }
       send(res, 404, { error: 'Página não encontrada.' });
-    } catch (error) { send(res, error.status || 500, { error: error.status ? error.message : 'Ocorreu um erro interno. Tente novamente.', ...(error.retryAfter ? { retryAfter: error.retryAfter } : {}) }); }
+    } catch (error) { send(res, error.status || 500, { error: error.status ? error.message : 'Ocorreu um erro interno. Tente novamente.', ...(error.retryAfter ? { retryAfter: error.retryAfter } : {}), ...(error.login ? { login: true } : {}) }); }
   });
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const local = await readFile(resolve(root, 'config.local.json'), 'utf8').then(JSON.parse).catch(() => ({}));
   const port = Number(process.env.PORT || local.port || 3000);
-  const config = { clientId: process.env.OLIST_CLIENT_ID || local.clientId, clientSecret: process.env.OLIST_CLIENT_SECRET || local.clientSecret, redirectUri: process.env.OLIST_REDIRECT_URI || local.redirectUri || `http://localhost:${port}/auth/callback`, port };
+  const config = { appUser: process.env.APP_USERNAME || local.appUser, appPassword: process.env.APP_PASSWORD || local.appPassword, clientId: process.env.OLIST_CLIENT_ID || local.clientId, clientSecret: process.env.OLIST_CLIENT_SECRET || local.clientSecret, redirectUri: process.env.OLIST_REDIRECT_URI || local.redirectUri || `http://localhost:${port}/auth/callback`, port };
   createApp(config).listen(port, '127.0.0.1', () => console.log(`DRIVE MAXX disponível em http://localhost:${port}\nRetorno OAuth: ${config.redirectUri}`));
 }

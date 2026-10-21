@@ -36,7 +36,8 @@ export function cookieSessions(req, res, secret, secure) {
         const part = encoded.slice(i * 3000, (i + 1) * 3000);
         return `drive_data${i}=${part}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${part ? 86400 : 0}${secure ? '; Secure' : ''}`;
       });
-      headers['Set-Cookie'] = [...(outgoing ? [outgoing] : []), ...parts];
+      // Keep cookies set earlier with res.setHeader (e.g. the app login cookie).
+      headers['Set-Cookie'] = [...[].concat(res.getHeader('Set-Cookie') || []), ...(outgoing ? [outgoing] : []), ...parts];
     }
     return writeHead(status, headers);
   };

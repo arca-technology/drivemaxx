@@ -1,6 +1,8 @@
 # ENTERPRISER • DRIVE MAXX
 
-Catálogo integrado à API v3 do Olist ERP, com autenticação OAuth, busca, filtros, exportação CSV, tema claro/escuro e tabela com cabeçalho e primeira coluna fixos.
+Catálogo integrado à API v3 do Olist ERP, com login de acesso, autenticação OAuth na Olist, importação de produtos, estoque disponível, agrupamento de variações, filtros por coluna (Ctrl + clique no cabeçalho), gerenciador de colunas, seleção, exportação CSV e tema claro/escuro.
+
+Localmente, defina `appUser` e `appPassword` em `config.local.json` para ativar o login; sem eles o acesso local fica liberado.
 
 ## Executar localmente
 
@@ -25,6 +27,7 @@ Configure no projeto Vercel, ambiente Production:
 - `OLIST_CLIENT_ID`: Client ID do aplicativo Olist.
 - `OLIST_CLIENT_SECRET`: Client Secret, como variável secreta.
 - `OLIST_REDIRECT_URI`: `https://app.drivemaxx.com.br/` (deve ser idêntica à URL cadastrada na Olist).
+- `APP_USERNAME` e `APP_PASSWORD` (Sensitive): usuário e senha de acesso ao app. Sem elas, o app fica bloqueado.
 - `SESSION_SECRET`: segredo aleatório de pelo menos 32 bytes, como variável secreta. Gere com `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`.
 
 Após configurar as variáveis, faça um Redeploy. Acesse o domínio `app.drivemaxx.com.br` para autenticar. O endereço `drivemaxx.vercel.app` encaminha para esse domínio antes do login. O callback funciona tanto na raiz cadastrada quanto em `/auth/callback`.

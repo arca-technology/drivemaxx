@@ -10,43 +10,78 @@
   <header class="header">
     <a class="brand" href="/" aria-label="ENTERPRISER DRIVE MAXX"><span class="brand-mark">D<span>↗</span></span><span>ENTERPRISER <b>•</b> <strong>DRIVE MAXX</strong></span></a>
     <div class="page-tab"><span class="tab-icon" data-icon="box"></span><h1>PRODUTOS</h1></div>
-    <div class="header-actions"><span class="local-badge"><i></i> LOCAL</span><button id="integrations" class="icon-button" title="Integrações" aria-label="Abrir integrações" aria-haspopup="dialog" data-icon="plug"></button><button id="theme" class="icon-button" title="Alternar modo escuro e claro" aria-label="Ativar modo escuro" data-icon="moon"></button><span class="divider"></span><button id="account" class="account-button" title="Conectar conta Olist"><span class="avatar" data-icon="user"></span><span id="account-label">Conectar conta</span><span data-icon="chevron"></span></button></div>
+    <div class="header-actions">
+      <button id="integrations" class="icon-button" title="Integrações" aria-label="Abrir integrações" aria-haspopup="dialog" data-icon="plug"></button>
+      <button id="settings" class="icon-button" title="Configurações" aria-label="Abrir configurações" aria-haspopup="dialog" data-icon="settings"></button>
+      <button id="theme" class="icon-button" title="Alternar modo escuro e claro" aria-label="Ativar modo escuro" data-icon="moon"></button>
+      <span class="divider"></span>
+      <button id="account" class="account-button" title="Conectar conta Olist"><span class="avatar" data-icon="user"></span><span id="account-label">Conectar conta</span><span data-icon="chevron"></span></button>
+      <button id="app-logout" class="icon-button" title="Sair do DRIVE MAXX" aria-label="Sair do DRIVE MAXX" data-icon="logout"></button>
+    </div>
   </header>
 
   <main>
     <section class="toolbar" aria-label="Ferramentas de produtos">
-      <div class="toolbar-start"><span class="count-badge"><span data-icon="box"></span><b id="count">0</b> produtos</span><span class="toolbar-line"></span><span class="connection-label" id="connection"><i></i> Olist desconectada</span></div>
-      <div class="toolbar-end"><label class="search"><span data-icon="search"></span><input id="search" placeholder="Buscar por nome, SKU ou GTIN..." autocomplete="off" aria-label="Buscar produtos"><kbd>/</kbd></label><label class="select-wrap"><span data-icon="filter"></span><select id="status" aria-label="Filtrar situação"><option value="">Todas as situações</option value="A">Ativos</option><option value="I">Inativos</option><option value="E">Excluídos</option></select></label><button id="refresh" class="icon-button bordered" title="Atualizar produtos" aria-label="Atualizar produtos" disabled data-icon="refresh"></button><button id="export" class="button export-button" disabled><span data-icon="download"></span> Exportar <span class="csv-label">CSV</span></button></div>
-    </section>
-    <div class="viewbar"><div class="view-tab"><span data-icon="table"></span> Todos os produtos <span id="view-count">0</span></div><span id="sync-label">Seu catálogo, conectado à Olist.</span><span class="view-mode"><span data-icon="table"></span> TABELA</span></div>
-    <div id="notice" role="status" hidden></div>
-
-    <section class="table-region" aria-label="Catálogo de produtos" tabindex="0">
-      <table id="products-table"><thead><tr>
-        <th class="product-col" scope="col"><button class="sort" data-sort="descricao">PRODUTO <span data-icon="sort"></span></button></th>
-        <th scope="col"><button class="sort" data-sort="sku">CÓDIGO / SKU <span data-icon="sort"></span></button></th>
-        <th scope="col"><button class="sort" data-sort="situacao">SITUAÇÃO <span data-icon="sort"></span></button></th>
-        <th class="numeric" scope="col"><button class="sort" data-sort="preco">PREÇO DE VENDA <span data-icon="sort"></span></button></th>
-        <th class="numeric" scope="col">PREÇO PROMOCIONAL</th><th class="numeric" scope="col">PREÇO DE CUSTO</th><th scope="col">UNIDADE</th><th scope="col">GTIN / EAN</th><th scope="col">TIPO</th><th scope="col">VARIAÇÃO</th><th scope="col">LOCALIZAÇÃO</th><th scope="col">ÚLTIMA ALTERAÇÃO</th><th scope="col">ID OLIST</th>
-      </tr></thead><tbody id="rows"></tbody></table>
-
-      <div id="empty" class="empty-state">
-        <div class="connection-art" aria-hidden="true"><div class="art-grid"></div><span class="art-olist">olist<span>●</span></span><span class="art-link" data-icon="link"></span><span class="art-drive">D↗</span><i></i><i></i></div>
-        <span class="eyebrow">SEU CATÁLOGO EM UM SÓ LUGAR</span>
-        <h2 id="empty-title">Seus produtos. Mais perto.</h2>
-        <p id="empty-description">Conecte sua conta Olist para visualizar, buscar e<br> organizar todos os produtos do seu catálogo.</p>
-        <a id="connect" class="button primary" href="/auth/login"><span data-icon="link"></span> Autenticar com Olist <span data-icon="arrow"></span></a>
-        <button id="import" class="button primary" type="button" hidden><span data-icon="download"></span> Importar produtos</button>
-        <div id="connect-hint" class="connect-hint"><span data-icon="lock"></span> Autenticação segura pela sua conta Olist</div>
-        <details id="setup" class="setup"><summary>Configuração para autenticação local <span data-icon="chevron"></span></summary><p>No aplicativo DRIVE MAXX da Olist, cadastre esta URL de redirecionamento e habilite a leitura de Produtos:</p><div class="callback"><code id="callback">http://localhost:3000/auth/callback</code><button id="copy-callback" class="icon-button" title="Copiar URL" aria-label="Copiar URL de retorno" data-icon="copy"></button></div></details>
+      <div class="toolbar-start">
+        <span class="count-badge"><span data-icon="box"></span><b id="count">0</b> produtos</span>
+        <button id="selection" class="selection-badge" type="button" title="Limpar seleção" hidden><b id="selection-count">0</b> selecionados <span data-icon="close"></span></button>
+        <span class="toolbar-line"></span>
+        <span class="connection-label" id="connection"><i></i> Olist desconectada</span>
+      </div>
+      <div class="toolbar-center">
+        <label class="search"><span data-icon="search"></span><input id="search" placeholder="Buscar por nome, SKU, GTIN ou ID..." autocomplete="off" aria-label="Buscar produtos"><kbd>/</kbd></label>
+      </div>
+      <div class="toolbar-end">
+        <button id="columns" class="icon-button bordered" title="Gerenciar colunas" aria-label="Gerenciar colunas" aria-haspopup="dialog" data-icon="columns"></button>
+        <button class="view-button active" type="button" title="Visualização em tabela" aria-pressed="true"><span data-icon="table"></span> TABELA</button>
+        <span class="toolbar-line"></span>
+        <button id="refresh" class="icon-button bordered" title="Importar produtos novamente" aria-label="Importar produtos novamente" disabled data-icon="refresh"></button>
+        <button id="export" class="button export-button" disabled><span data-icon="download"></span> Exportar <span class="csv-label">CSV</span></button>
       </div>
     </section>
-    <footer class="footer"><span class="footer-status"><i></i><span id="footer-label">Aguardando conexão com a Olist</span></span><div class="pagination"><span id="range">0 produtos</span><span class="footer-line"></span><label>Por página <select id="page-size" aria-label="Produtos por página"><option>50</option><option>100</option><option>200</option></select></label><button id="previous" class="icon-button small" title="Página anterior" aria-label="Página anterior" disabled data-icon="left"></button><span id="page-label">1 / 1</span><button id="next" class="icon-button small" title="Próxima página" aria-label="Próxima página" disabled data-icon="right"></button></div></footer>
+
+    <div class="filterbar" aria-label="Filtros aplicados">
+      <div id="active-filters" class="active-filters"><span class="filter-hint">Ctrl + clique no cabeçalho de uma coluna para filtrar</span></div>
+      <button id="clear-filters" class="clear-filters" type="button" hidden>Limpar tudo</button>
+    </div>
+    <div id="notice" role="status" hidden></div>
+
+    <section class="table-card">
+      <div class="table-region" aria-label="Catálogo de produtos" tabindex="0">
+        <table id="products-table"><colgroup id="cols"></colgroup><thead><tr id="head-row"></tr></thead><tbody id="rows"></tbody></table>
+
+        <div id="empty" class="empty-state">
+          <div class="connection-art" aria-hidden="true"><div class="art-grid"></div><span class="art-olist">olist<span>●</span></span><span class="art-link" data-icon="link"></span><span class="art-drive">D↗</span><i></i><i></i></div>
+          <span class="eyebrow">SEU CATÁLOGO EM UM SÓ LUGAR</span>
+          <h2 id="empty-title">Seus produtos. Mais perto.</h2>
+          <p id="empty-description">Conecte sua conta Olist para visualizar, buscar e<br> organizar todos os produtos do seu catálogo.</p>
+          <a id="connect" class="button primary" href="/auth/login"><span data-icon="link"></span> Autenticar com Olist <span data-icon="arrow"></span></a>
+          <button id="import" class="button primary" type="button" hidden><span data-icon="download"></span> Importar produtos</button>
+          <div id="connect-hint" class="connect-hint"><span data-icon="lock"></span> Autenticação segura pela sua conta Olist</div>
+          <details id="setup" class="setup"><summary>Configuração para autenticação local <span data-icon="chevron"></span></summary><p>No aplicativo DRIVE MAXX da Olist, cadastre esta URL de redirecionamento e habilite a leitura de Produtos e Estoque:</p><div class="callback"><code id="callback">http://localhost:3000/auth/callback</code><button id="copy-callback" class="icon-button" title="Copiar URL" aria-label="Copiar URL de retorno" data-icon="copy"></button></div></details>
+        </div>
+      </div>
+      <div class="table-footer">
+        <span id="range">0 produtos</span>
+        <div class="pager">
+          <button id="first" class="icon-button small" title="Primeira página" aria-label="Primeira página" disabled data-icon="first"></button>
+          <button id="previous" class="icon-button small" title="Página anterior" aria-label="Página anterior" disabled data-icon="left"></button>
+          <span id="page-label">1 / 1</span>
+          <button id="next" class="icon-button small" title="Próxima página" aria-label="Próxima página" disabled data-icon="right"></button>
+          <button id="last" class="icon-button small" title="Última página" aria-label="Última página" disabled data-icon="last"></button>
+        </div>
+        <label class="page-size">Por página <select id="page-size" aria-label="Produtos por página"><option>50</option><option>100</option><option>200</option></select></label>
+      </div>
+    </section>
+
+    <footer class="footer"><span class="footer-status"><i></i><span id="footer-label">Aguardando conexão com a Olist</span></span><span id="enrich-label" class="enrich-label"></span></footer>
   </main>
+
   <dialog id="account-dialog"><form method="dialog"><button class="dialog-close icon-button" aria-label="Fechar" data-icon="close"></button><span class="eyebrow">CONTA OLIST</span><h2>Conexão do catálogo</h2><p>Os produtos exibidos pertencem à conta autorizada na Olist. Ao desconectar, a sessão e os produtos serão removidos desta tela.</p><div class="dialog-actions"><button class="button" value="cancel">Voltar</button><button id="logout" type="button" class="button danger">Desconectar conta</button></div></form></dialog>
+
   <dialog id="integrations-drawer" class="drawer" aria-labelledby="integrations-title">
     <div class="drawer-body">
-      <div class="drawer-head"><h2 id="integrations-title"><span data-icon="link"></span> INTEGRAÇÕES</h2><button id="integrations-close" class="icon-button" aria-label="Fechar integrações" data-icon="close"></button></div>
+      <div class="drawer-head"><h2 id="integrations-title"><span data-icon="link"></span> INTEGRAÇÕES</h2><button class="icon-button drawer-close" aria-label="Fechar integrações" data-icon="close"></button></div>
       <p class="drawer-intro">Conecte suas contas para sincronizar dados automaticamente.</p>
       <ul class="integration-list">
         <li class="integration">
@@ -57,6 +92,30 @@
           <p id="olist-error" class="integration-error" role="alert" hidden></p>
         </li>
       </ul>
+    </div>
+  </dialog>
+
+  <dialog id="settings-drawer" class="drawer" aria-labelledby="settings-title">
+    <div class="drawer-body">
+      <div class="drawer-head"><h2 id="settings-title"><span data-icon="settings"></span> CONFIGURAÇÕES</h2><button class="icon-button drawer-close" aria-label="Fechar configurações" data-icon="close"></button></div>
+      <section class="settings-group">
+        <h3>Aparência</h3>
+        <div class="settings-row"><span>Tema</span><div class="segmented" role="group" aria-label="Tema"><button type="button" data-theme-option="light">Claro</button><button type="button" data-theme-option="dark">Escuro</button></div></div>
+      </section>
+      <section class="settings-group">
+        <h3>Tabela</h3>
+        <label class="settings-row"><span>Itens por página</span><select id="default-page-size"><option>50</option><option>100</option><option>200</option></select></label>
+        <label class="settings-row"><span>Carregar estoque e variações após importar</span><input id="auto-enrich" type="checkbox" checked></label>
+        <div class="settings-row"><span>Colunas</span><button id="settings-columns" class="integration-action" type="button">GERENCIAR</button></div>
+      </section>
+      <section class="settings-group">
+        <h3>Integrações</h3>
+        <div class="settings-row"><span>Olist ERP</span><button id="settings-integrations" class="integration-action" type="button">ABRIR</button></div>
+      </section>
+      <section class="settings-group">
+        <h3>Acesso</h3>
+        <div class="settings-row"><span>Usuário <b id="app-user">—</b></span><button id="settings-logout" class="integration-action danger" type="button">SAIR</button></div>
+      </section>
     </div>
   </dialog>
 </body>

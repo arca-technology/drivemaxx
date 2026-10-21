@@ -22,7 +22,7 @@ async function setup(t, upstream = async () => { throw new Error('Unexpected ups
         resolve(new Response(Buffer.concat(chunks), { status: res.statusCode, headers }));
       });
     });
-    req.on('error', reject); req.end();
+    req.on('error', reject); req.end(options.body);
   });
   return { get };
 }
@@ -195,4 +195,51 @@ test('Vercel alias redirects to the canonical OAuth domain', async t => {
   const response = await get('/auth/login', { headers: { Host: 'drivemaxx.vercel.app' } });
   assert.equal(response.status, 302);
   assert.equal(response.headers.get('location'), 'https://app.drivemaxx.com.br/auth/login');
+});
+
+test('app login gate blocks API and Olist routes until valid credentials', async t => {
+  const { get } = await setup(t, async () => json({ access_token: 'secret', expires_in: 3600 }), { appUser: 'drivemaxx', appPassword: 'senha-teste' });
+  const page = await get('/');
+  assert.equal(page.status, 200); assert.match(await page.text(), /login-form/);
+  assert.equal((await get('/api/session')).status, 401);
+  assert.equal((await get('/auth/login')).status, 401);
+  const post = (body, origin = 'http://localhost:3000') => get('/auth/app-login', { method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  assert.equal((await post({ username: 'drivemaxx', password: 'errada' })).status, 401);
+  assert.equal((await post({ username: 'drivemaxx', password: 'senha-teste' }, 'https://evil.example')).status, 403);
+  const ok = await post({ username: 'drivemaxx', password: 'senha-teste' });
+  assert.equal(ok.status, 200);
+  const app = ok.headers.get('set-cookie').split(';')[0];
+  assert.match(app, /^drive_app=/);
+  assert.equal((await get('/api/session', { headers: { Cookie: app } })).status, 200);
+  assert.match(await (await get('/', { headers: { Cookie: app } })).text(), /products-table/);
+  const forged = app.replace(/.$/, c => c === 'A' ? 'B' : 'A');
+  assert.equal((await get('/api/session', { headers: { Cookie: forged } })).status, 401);
+  const out = await get('/auth/app-logout', { method: 'POST', headers: { Origin: 'http://localhost:3000', Cookie: app } });
+  assert.match(out.headers.get('set-cookie'), /drive_app=;.*Max-Age=0/);
+});
+test('stock and variations are fetched per id and stop on rate limit', async t => {
+  let stockCalls = 0;
+  const { get } = await setup(t, async url => {
+    url = String(url);
+    if (url.endsWith('/token')) return json({ access_token: 'secret', expires_in: 3600 });
+    if (url.includes('/estoque/')) { stockCalls++; return stockCalls > 2 ? json({}, 429, { 'retry-after': '9' }) : json({ saldo: 10, reservado: 2, disponivel: 8, depositos: [] }); }
+    if (url.endsWith('/produtos/7')) return json({ id: 7, variacoes: [{ id: 71, grade: [{ chave: 'Cor', valor: 'Azul' }] }, { id: 72, grade: null }] });
+    return json({}, 404);
+  });
+  const cookie = await login(get);
+  const stock = await (await get('/api/stock?ids=1,2,3', { headers: { Cookie: cookie } })).json();
+  assert.deepEqual(stock.items, { 1: { saldo: 10, reservado: 2, disponivel: 8 }, 2: { saldo: 10, reservado: 2, disponivel: 8 } });
+  assert.equal(stock.retryAfter, 9);
+  const variations = await (await get('/api/variations?ids=7,8', { headers: { Cookie: cookie } })).json();
+  assert.deepEqual(variations.items, { 7: [{ id: 71, grade: 'Cor: Azul' }, { id: 72, grade: '' }], 8: null });
+  for (const ids of ['', 'a', '0', Array.from({ length: 21 }, (_, i) => i + 1).join(',')]) assert.equal((await get(`/api/stock?ids=${ids}`, { headers: { Cookie: cookie } })).status, 400);
+});
+test('serverless app login keeps the encrypted Olist session cookies', async t => {
+  const options = { serverless: true, sessionSecret: randomBytes(32).toString('hex'), redirectUri: 'http://localhost:3000/', appUser: 'u', appPassword: 'p' };
+  const { get } = await setup(t, async () => json({ access_token: 'secret', expires_in: 3600 }), options);
+  const ok = await get('/auth/app-login', { method: 'POST', headers: { Origin: 'http://localhost:3000', Cookie: 'drive_session=abc' }, body: JSON.stringify({ username: 'u', password: 'p' }) });
+  assert.equal(ok.status, 200);
+  const cookies = ok.headers.getSetCookie();
+  assert.ok(cookies.some(c => c.startsWith('drive_app=') && !c.startsWith('drive_app=;')));
+  assert.ok(cookies.some(c => c.startsWith('drive_data0=')));
 });
