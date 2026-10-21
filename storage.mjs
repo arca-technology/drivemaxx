@@ -5,7 +5,7 @@ import { join, dirname } from 'node:path';
 
 // Encrypted JSON storage. Vercel Blob (private) in production, a local folder or memory otherwise.
 // Everything is gzip-compressed and sealed with AES-256-GCM, so the store never holds plain data.
-export function createStorage({ secret, blobToken, dir } = {}) {
+export function createStorage({ secret, blobToken, blobStoreId, oidcToken, dir } = {}) {
   const key = createHash('sha256').update(`drive-cache-v1.${secret || randomBytes(32).toString('hex')}`).digest();
   const seal = value => {
     const iv = randomBytes(12), cipher = createCipheriv('aes-256-gcm', key, iv);
@@ -17,9 +17,11 @@ export function createStorage({ secret, blobToken, dir } = {}) {
     decipher.setAuthTag(buffer.subarray(12, 28));
     return JSON.parse(gunzipSync(Buffer.concat([decipher.update(buffer.subarray(28)), decipher.final()]), { maxOutputLength: 200 * 1024 * 1024 }));
   };
-  const backend = blobToken ? blobBackend(blobToken) : dir ? folderBackend(dir) : memoryBackend();
+  // Blob auth: a read-write token, or the store id plus the per-request Vercel OIDC token.
+  const blob = blobToken ? () => ({ token: blobToken }) : blobStoreId ? () => ({ storeId: blobStoreId, ...(oidcToken?.() ? { oidcToken: oidcToken() } : {}) }) : null;
+  const backend = blob ? blobBackend(blob) : dir ? folderBackend(dir) : memoryBackend();
   return {
-    kind: blobToken ? 'blob' : dir ? 'folder' : 'memory',
+    kind: blob ? 'blob' : dir ? 'folder' : 'memory',
     async get(name) { const raw = await backend.read(name); if (!raw) return null; try { return open(raw); } catch { return null; } },
     async put(name, value) { await backend.write(name, seal(value)); },
     list: prefix => backend.list(prefix),
@@ -51,25 +53,25 @@ function folderBackend(dir) {
   };
 }
 
-function blobBackend(token) {
+function blobBackend(auth) {
   const sdk = import('@vercel/blob');
   return {
     async read(name) {
       const { get } = await sdk;
-      const result = await get(name, { access: 'private', token, useCache: false });
+      const result = await get(name, { access: 'private', useCache: false, ...auth() });
       return result?.statusCode === 200 ? Buffer.from(await new Response(result.stream).arrayBuffer()) : null;
     },
     async write(name, data) {
       const { put } = await sdk;
-      await put(name, data, { access: 'private', token, addRandomSuffix: false, allowOverwrite: true, contentType: 'application/octet-stream' });
+      await put(name, data, { access: 'private', addRandomSuffix: false, allowOverwrite: true, contentType: 'application/octet-stream', ...auth() });
     },
     async list(prefix) {
       const { list } = await sdk;
       const names = [];
       let cursor;
-      do { const page = await list({ prefix, token, cursor, limit: 1000 }); names.push(...page.blobs.map(b => b.pathname)); cursor = page.hasMore ? page.cursor : undefined; } while (cursor && names.length < 5000);
+      do { const page = await list({ prefix, cursor, limit: 1000, ...auth() }); names.push(...page.blobs.map(b => b.pathname)); cursor = page.hasMore ? page.cursor : undefined; } while (cursor && names.length < 5000);
       return names.sort();
     },
-    async remove(names) { const { del } = await sdk; await del(names, { token }); }
+    async remove(names) { const { del } = await sdk; await del(names, auth()); }
   };
 }

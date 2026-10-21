@@ -12,6 +12,7 @@ export default function handler(req, res) {
     appUser: process.env.APP_USERNAME,
     webhookSecret: process.env.WEBHOOK_SECRET,
     // Accepts a custom prefix chosen when connecting the Blob store (e.g. DRIVEMAXX_READ_WRITE_TOKEN).
+    blobStoreId: process.env.BLOB_STORE_ID,
     blobToken: process.env.BLOB_READ_WRITE_TOKEN || Object.entries(process.env).find(([key, value]) => key.endsWith('READ_WRITE_TOKEN') && String(value).startsWith('vercel_blob_rw_'))?.[1],
     appPassword: process.env.APP_PASSWORD,
     clientId: process.env.OLIST_CLIENT_ID,

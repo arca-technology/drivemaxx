@@ -45,7 +45,8 @@ export function createApp(config, fetcher = fetch) {
     const body = (await readRaw(req, limit)).toString('utf8');
     try { return JSON.parse(body || '{}'); } catch { throw fault(400, 'Requisição inválida.'); }
   }
-  const storage = config.storage || createStorage({ secret: config.sessionSecret || config.clientSecret, blobToken: config.blobToken, dir: config.cacheDir });
+  let oidcToken = process.env.VERCEL_OIDC_TOKEN || '';
+  const storage = config.storage || createStorage({ secret: config.sessionSecret || config.clientSecret, blobToken: config.blobToken, blobStoreId: config.blobStoreId, oidcToken: () => oidcToken, dir: config.cacheDir });
   const DATE = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/;
   const idList = value => {
     const ids = String(value || '').split(',').filter(Boolean).map(Number);
@@ -116,6 +117,7 @@ export function createApp(config, fetcher = fetch) {
     return { items };
   }
   return http.createServer(async (req, res) => {
+    if (req.headers['x-vercel-oidc-token']) oidcToken = req.headers['x-vercel-oidc-token'];
     const sessions = config.serverless ? cookieSessions(req, res, config.sessionSecret, secure) : localSessions;
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('Referrer-Policy', 'no-referrer');
@@ -257,7 +259,7 @@ export function createApp(config, fetcher = fetch) {
         res.writeHead(200, { 'Content-Type': `${type}; charset=utf-8` }); return res.end(body);
       }
       send(res, 404, { error: 'Página não encontrada.' });
-    } catch (error) { send(res, error.status || 500, { error: error.status ? error.message : 'Ocorreu um erro interno. Tente novamente.', ...(error.retryAfter ? { retryAfter: error.retryAfter } : {}), ...(error.login ? { login: true } : {}) }); }
+    } catch (error) { if (!error.status) console.error('[erro]', req.method, req.url?.split('?')[0], error?.message); send(res, error.status || 500, { error: error.status ? error.message : 'Ocorreu um erro interno. Tente novamente.', ...(error.retryAfter ? { retryAfter: error.retryAfter } : {}), ...(error.login ? { login: true } : {}) }); }
   });
 }
 
