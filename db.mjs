@@ -55,6 +55,7 @@ export function supabaseRepo({ url, key, fetcher = fetch }) {
     }
     return text ? JSON.parse(text) : null;
   }
+  const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   const eq = value => `eq.${encodeURIComponent(value)}`;
   const inList = values => `in.(${values.map(v => encodeURIComponent(v)).join(',')})`;
   const userCols = 'id,tenant_id,customer_id,name,username,email,password_hash,role,active,last_login_at,created_at';
@@ -62,7 +63,8 @@ export function supabaseRepo({ url, key, fetcher = fetch }) {
   return {
     kind: 'supabase',
     async findUserByUsername(username) { return (await rest('GET', `app_users?select=${userCols}&username=ilike.${encodeURIComponent(String(username).replace(/[%_\\]/g, '\\$&'))}&limit=1`))[0] || null; },
-    async getUser(id) { return (await rest('GET', `app_users?select=${userCols}&id=${eq(id)}&limit=1`))[0] || null; },
+    // Ids that are not UUIDs (e.g. cookies from the old env login) simply resolve to no user.
+    async getUser(id) { if (!UUID.test(String(id))) return null; return (await rest('GET', `app_users?select=${userCols}&id=${eq(id)}&limit=1`))[0] || null; },
     async listUsers(tenantId) { return rest('GET', `app_users?select=id,customer_id,name,username,email,role,active,last_login_at,created_at,customers(id,cnpj,legal_name,trade_name)&tenant_id=${eq(tenantId)}&order=created_at.desc`); },
     async createUser(row) { return (await rest('POST', 'app_users', { body: row, prefer: 'return=representation' }))[0]; },
     async updateUser(tenantId, id, patch) { return (await rest('PATCH', `app_users?tenant_id=${eq(tenantId)}&id=${eq(id)}`, { body: patch, prefer: 'return=representation' }))[0] || null; },
