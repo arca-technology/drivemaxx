@@ -111,9 +111,10 @@ $('bag').onclick = () => {
   $('bag-save').disabled = items.some(p => p.precoComprador == null);
   if ($('bag-save').disabled) { $('bag-error').textContent = 'Há produtos sem preço definido. Remova-os da seleção para fazer o pedido.'; $('bag-error').hidden = false; }
   $('bag-total').textContent = money(bagTotal());
-  $('bag-dialog').showModal();
+  openDrawer($('bag-dialog'));
   $('bag-rows').querySelector('input:not([disabled])')?.focus();
 };
+$('bag-form').addEventListener('submit', event => event.preventDefault());
 $('bag-rows').addEventListener('input', () => { $('bag-total').textContent = money(bagTotal()); });
 $('bag-save').onclick = async () => {
   const items = [...$('bag-rows').querySelectorAll('tr[data-id]')].map(tr => ({ id: Number(tr.dataset.id), quantity: Number(tr.querySelector('input').value) }));
@@ -121,7 +122,7 @@ $('bag-save').onclick = async () => {
   $('bag-save').disabled = true; $('bag-save').textContent = 'Salvando…'; $('bag-error').hidden = true;
   try {
     const order = await api('/api/orders', json({ items, notes: $('bag-notes').value.trim() }));
-    $('bag-dialog').close();
+    closeDrawer($('bag-dialog'));
     state.selected.clear(); render();
     notice(order.status === 'enviado_olist' ? `Pedido #${order.number} criado (Olist nº ${order.olistOrderNumber || '—'}). Total ${money(order.total)}.` : `Pedido #${order.number} salvo, mas não foi enviado à Olist: ${order.olistError || 'tente novamente mais tarde'}. O fornecedor foi avisado pelo painel.`, order.status !== 'enviado_olist');
   } catch (error) { $('bag-error').textContent = error.message; $('bag-error').hidden = false; }
@@ -176,7 +177,7 @@ async function openOrder(id) {
     $('order-items').innerHTML = o.items.map(i => `<tr><td>${escape(i.description)}</td><td class="mono">${escape(i.sku || '')}</td><td class="numeric">${qty(i.quantity)}</td><td class="numeric">${money(i.unitPrice)}</td><td class="numeric"><b>${money(i.total)}</b></td></tr>`).join('');
     $('order-total').textContent = money(o.total);
     $('order-resend').hidden = !(state.role === 'admin' && o.status !== 'enviado_olist' && o.status !== 'cancelado');
-    $('order-dialog').showModal();
+    openDrawer($('order-dialog'));
   } catch (error) { moduleNotice('orders-notice', error.message, true); }
 }
 $('order-resend').onclick = async () => {
@@ -184,7 +185,7 @@ $('order-resend').onclick = async () => {
   $('order-resend').disabled = true; $('order-resend').textContent = 'Enviando…';
   try {
     const r = await api(`/api/orders/${openedOrder.id}/resend`, json({}));
-    $('order-dialog').close(); await loadOrders();
+    closeDrawer($('order-dialog')); await loadOrders();
     moduleNotice('orders-notice', r.status === 'enviado_olist' ? `Pedido #${openedOrder.number} enviado à Olist (nº ${r.olistOrderNumber || '—'}).` : `A Olist recusou novamente: ${r.olistError}`, r.status !== 'enviado_olist');
   } catch (error) { moduleNotice('orders-notice', error.message, true); }
   finally { $('order-resend').disabled = false; $('order-resend').textContent = 'Reenviar para a Olist'; }
@@ -228,9 +229,9 @@ function syncUserRole() { $('user-customer').hidden = $('user-role').value !== '
 $('user-role').onchange = syncUserRole;
 $('user-new').onclick = () => {
   $('user-form').reset(); companyLookup = null; $('user-company').hidden = true; userFormError(''); syncUserRole();
-  $('user-dialog').showModal(); $('user-cnpj').focus();
+  openDrawer($('user-dialog')); $('user-cnpj').focus();
 };
-const closeUser = () => $('user-dialog').close();
+const closeUser = () => closeDrawer($('user-dialog'));
 $('user-cancel').onclick = closeUser; $('user-cancel-x').onclick = closeUser;
 $('user-cnpj').addEventListener('input', () => { const d = $('user-cnpj').value.replace(/\D/g, '').slice(0, 14); if (d.length === 14) $('user-cnpj').value = cnpjMask(d); });
 $('user-cnpj').addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); $('user-cnpj-search').click(); } });
@@ -260,3 +261,91 @@ $('user-form').addEventListener('submit', async event => {
   } catch (error) { userFormError(error.message); }
   finally { $('user-save').disabled = false; }
 });
+
+
+// ── Right-side modals: every modal slides in like the drawers and closes with the same animation ──
+document.querySelectorAll('dialog.modal').forEach(dialog => {
+  dialog.addEventListener('click', event => {
+    if (event.target.closest('button[value="cancel"]')) { event.preventDefault(); closeDrawer(dialog); }
+  });
+});
+// Broken product images fall back to the box icon (no inline handlers under the CSP).
+document.addEventListener('error', event => {
+  const img = event.target;
+  if (img.tagName !== 'IMG' || !img.closest('.thumb, .gallery-main, .gallery-thumbs')) return;
+  const holder = img.parentElement; img.remove(); if (!holder.querySelector('svg')) holder.insertAdjacentHTML('beforeend', icon('box'));
+}, true);
+
+// ── Product detail (fed from Olist on open, saved to the database) ──
+let detailId = null;
+const fmtDim = (v, unit) => v ? `${qty(v)} ${unit}` : null;
+function applyDetail(d) {
+  const p = state.byId.get(d.id);
+  if (p) {
+    p.imagem = d.imagem || p.imagem || null;
+    if (d.precos) { p.precos = { ...p.precos, ...d.precos }; p.custoFicha = d.precos.custoFicha; }
+    if (state.role !== 'admin') p.precoComprador = d.precoComprador;
+  }
+  const kids = (d.detalhes?.variacoes || []).map(v => Number(v.id)).filter(id => state.byId.has(id));
+  if (kids.length) {
+    state.children.set(d.id, kids);
+    kids.forEach(k => { state.parentOf.set(k, d.id); const kid = state.byId.get(k); if (kid && !kid.imagem) kid.imagem = d.imagem; });
+    (d.detalhes.variacoes || []).forEach(v => { if (v.grade) state.grade.set(Number(v.id), v.grade); });
+    state.variationsDone.add(d.id);
+  }
+  render();
+}
+function renderDetail(d, loading = false) {
+  const p = state.byId.get(d.id) || {};
+  const images = d.imagens?.length ? d.imagens : (d.imagem || p.imagem ? [d.imagem || p.imagem] : []);
+  const det = d.detalhes || {};
+  const dims = det.dimensoes || {};
+  const kids = kidsOf(d.id).map(id => state.byId.get(id));
+  const admin = state.role === 'admin';
+  const stock = stockOf(p.id ? p : { id: d.id });
+  const cells = [
+    ['Preço comprador', d.precoComprador != null ? money(d.precoComprador) : 'Sem preço', 'highlight'],
+    ['Estoque disponível', stock == null ? '—' : qty(stock)],
+    ['Unidade', d.unidade || p.unidade || '—'],
+    ...(admin && d.precos ? [['Preço de venda', money(d.precos.preco)], ['Custo', money(d.precos.precoCusto)], ['Custo médio', money(d.precos.precoCustoMedio)], ['Custo (ficha Olist)', money(d.precos.custoFicha)], ['Margem', d.margem == null ? `${qty(d.margemPadrao)}% (padrão)` : `${qty(d.margem)}%`], ['Visível ao comprador', d.visivel ? 'Sim' : 'Não']] : [])
+  ];
+  const info = [['Marca', det.marca], ['Categoria', det.categoria], ['NCM', det.ncm], ['Garantia', det.garantia], ['Dimensões (L × A × C)', [dims.largura, dims.altura, dims.comprimento].some(Boolean) ? `${qty(dims.largura || 0)} × ${qty(dims.altura || 0)} × ${qty(dims.comprimento || 0)} cm` : null], ['Peso bruto', fmtDim(dims.pesoBruto, 'kg')], ['Peso líquido', fmtDim(dims.pesoLiquido, 'kg')]].filter(([, v]) => v);
+  $('product-body').innerHTML = `
+    ${d.aviso ? `<div class="detail-warning">Não foi possível atualizar pela Olist agora: ${escape(d.aviso)}. Mostrando os dados salvos.</div>` : ''}
+    <div class="gallery"><div class="gallery-main">${images[0] ? `<img src="${escape(images[0])}" alt="${escape(d.descricao || p.descricao || '')}" referrerpolicy="no-referrer">` : icon('box')}</div>
+      ${images.length > 1 ? `<div class="gallery-thumbs">${images.map((u, i) => `<button type="button" class="${i ? '' : 'active'}" data-image="${escape(u)}"><img src="${escape(u)}" alt="" loading="lazy" referrerpolicy="no-referrer"></button>`).join('')}</div>` : ''}</div>
+    <h3 class="detail-title">${escape(d.descricao || p.descricao || '')}</h3>
+    <div class="detail-chips">${[d.sku || p.sku ? `SKU ${d.sku || p.sku}` : '', d.gtin || p.gtin ? `GTIN ${d.gtin || p.gtin}` : '', state.grade.get(d.id) || '', SITUATION[d.situacao || p.situacao] || ''].filter(Boolean).map(t => `<span>${escape(t)}</span>`).join('')}</div>
+    ${loading ? '<div class="skeleton"></div><div class="skeleton"></div>' : `<div class="detail-grid">${cells.map(([l, v, cls]) => `<div class="${cls || ''}"><span>${l}</span><b>${escape(v)}</b></div>`).join('')}</div>`}
+    ${det.complemento ? `<section class="detail-section"><h3>Descrição</h3><p>${escape(det.complemento)}</p></section>` : ''}
+    ${info.length ? `<section class="detail-section"><h3>Informações</h3><dl class="detail-list">${info.map(([k, v]) => `<dt>${k}</dt><dd>${escape(v)}</dd>`).join('')}</dl></section>` : ''}
+    ${kids.length ? `<section class="detail-section"><h3>Variações (${kids.length})</h3><dl class="detail-list">${kids.map(k => `<dt>${escape(state.grade.get(k.id) || k.sku || k.id)}</dt><dd>${qty(stockOf(k))} em estoque${state.role === 'buyer' && k.precoComprador != null ? ` · ${money(k.precoComprador)}` : ''}</dd>`).join('')}</dl></section>` : ''}`;
+  $('product-updated').textContent = d.atualizadoEm ? `Atualizado da Olist em ${dateTime(d.atualizadoEm)}` : loading ? 'Buscando na Olist…' : '';
+  $('product-add').hidden = state.role !== 'buyer';
+  $('product-add').disabled = loading || (d.precoComprador == null && !kids.some(k => k.precoComprador != null));
+}
+async function openProduct(id, refresh = false) {
+  detailId = id;
+  const p = state.byId.get(id) || { id };
+  renderDetail({ id, descricao: p.descricao, sku: p.sku, gtin: p.gtin, situacao: p.situacao, imagem: p.imagem, precoComprador: buyerPriceOf(p) }, true);
+  openDrawer($('product-dialog'));
+  try {
+    const d = await api(`/api/products/${id}/detail${refresh ? '?refresh=1' : ''}`);
+    if (detailId !== id) return;
+    applyDetail(d); renderDetail(d);
+  } catch (error) { if (detailId === id) $('product-body').insertAdjacentHTML('afterbegin', `<div class="detail-warning">${escape(error.message)}</div>`); }
+}
+$('rows').addEventListener('click', event => { const el = event.target.closest('[data-detail]'); if (el) openProduct(Number(el.dataset.detail)); });
+$('product-body').addEventListener('click', event => {
+  const thumb = event.target.closest('[data-image]');
+  if (!thumb) return;
+  $('product-body').querySelectorAll('[data-image]').forEach(b => b.classList.toggle('active', b === thumb));
+  $('product-body').querySelector('.gallery-main').innerHTML = `<img src="${escape(thumb.dataset.image)}" alt="" referrerpolicy="no-referrer">`;
+});
+$('product-refresh').onclick = () => { if (detailId) openProduct(detailId, true); };
+$('product-add').onclick = () => {
+  const ids = kidsOf(detailId).length ? kidsOf(detailId) : [detailId];
+  ids.forEach(id => state.selected.add(id));
+  closeDrawer($('product-dialog')); render();
+  notice(`${ids.length === 1 ? 'Produto adicionado' : `${ids.length} variações adicionadas`} à seleção. Clique em Sacola para informar as quantidades.`);
+};

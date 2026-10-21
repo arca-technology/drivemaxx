@@ -16,7 +16,7 @@ const API = 'https://erp.tiny.com.br/public-api/v3';
 const id = () => randomBytes(32).toString('base64url');
 const fault = (status, message, extra = {}) => Object.assign(new Error(message), { status, ...extra });
 // Routes a buyer may use; everything else is admin-only.
-const BUYER_ROUTES = [/^\/api\/me$/, /^\/api\/catalog$/, /^\/api\/orders(\/[\w-]+)?$/, /^\/auth\/app-logout$/];
+const BUYER_ROUTES = [/^\/api\/me$/, /^\/api\/catalog$/, /^\/api\/products\/\d+\/detail$/, /^\/api\/orders(\/[\w-]+)?$/, /^\/auth\/app-logout$/];
 
 export function createApp(config, fetcher = fetch) {
   const localSessions = new Map();
@@ -158,7 +158,7 @@ export function createApp(config, fetcher = fetch) {
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('Referrer-Policy', 'no-referrer');
     res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'");
+    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https:; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'");
     try {
       const url = new URL(req.url, origin);
       const isLocal = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);

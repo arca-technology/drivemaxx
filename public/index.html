@@ -108,9 +108,9 @@
     <footer class="footer"><span class="footer-status ready"><i></i><span>Usuários com acesso ao DRIVE MAXX</span></span></footer>
   </main>
 
-  <dialog id="bag-dialog" class="modal" aria-labelledby="bag-title">
+  <dialog id="bag-dialog" class="drawer modal" aria-labelledby="bag-title">
     <form method="dialog" class="modal-body" id="bag-form">
-      <div class="modal-head"><h2 id="bag-title"><span data-icon="bag"></span> Sacola</h2><button class="icon-button" value="cancel" aria-label="Fechar" data-icon="close"></button></div>
+      <div class="modal-head"><h2 id="bag-title"><span data-icon="bag"></span> Sacola</h2><button class="icon-button drawer-close" type="button" aria-label="Fechar" data-icon="close"></button></div>
       <div class="modal-scroll"><table class="bag-table"><thead><tr><th>PRODUTO</th><th class="numeric">ESTOQUE</th><th class="numeric">PREÇO</th><th class="numeric">QUANTIDADE</th><th class="numeric">TOTAL</th></tr></thead><tbody id="bag-rows"></tbody></table></div>
       <label class="field"><span>Observações</span><textarea id="bag-notes" rows="2" maxlength="1000" placeholder="Opcional"></textarea></label>
       <p id="bag-error" class="form-error" role="alert" hidden></p>
@@ -118,18 +118,18 @@
     </form>
   </dialog>
 
-  <dialog id="order-dialog" class="modal" aria-labelledby="order-title">
+  <dialog id="order-dialog" class="drawer modal" aria-labelledby="order-title">
     <form method="dialog" class="modal-body">
-      <div class="modal-head"><h2 id="order-title">Pedido</h2><button class="icon-button" value="cancel" aria-label="Fechar" data-icon="close"></button></div>
+      <div class="modal-head"><h2 id="order-title">Pedido</h2><button class="icon-button drawer-close" type="button" aria-label="Fechar" data-icon="close"></button></div>
       <div id="order-meta" class="order-meta"></div>
       <div class="modal-scroll"><table class="bag-table"><thead><tr><th>PRODUTO</th><th>SKU</th><th class="numeric">QTD.</th><th class="numeric">PREÇO</th><th class="numeric">TOTAL</th></tr></thead><tbody id="order-items"></tbody></table></div>
       <div class="modal-foot"><span class="bag-total">Total <b id="order-total">R$ 0,00</b></span><button id="order-resend" class="button" type="button" hidden>Reenviar para a Olist</button><button class="button" value="cancel">Fechar</button></div>
     </form>
   </dialog>
 
-  <dialog id="user-dialog" class="modal" aria-labelledby="user-title">
+  <dialog id="user-dialog" class="drawer modal" aria-labelledby="user-title">
     <form class="modal-body" id="user-form" novalidate>
-      <div class="modal-head"><h2 id="user-title">Novo usuário</h2><button class="icon-button" type="button" id="user-cancel-x" aria-label="Fechar" data-icon="close"></button></div>
+      <div class="modal-head"><h2 id="user-title">Novo usuário</h2><button class="icon-button drawer-close" type="button" id="user-cancel-x" aria-label="Fechar" data-icon="close"></button></div>
       <div class="modal-scroll form-grid">
         <label class="field"><span>Perfil</span><select id="user-role"><option value="buyer">Comprador (cliente)</option><option value="admin">Administrador</option></select></label>
         <div id="user-customer" class="customer-box">
@@ -146,7 +146,21 @@
     </form>
   </dialog>
 
-  <dialog id="account-dialog"><form method="dialog"><button class="dialog-close icon-button" aria-label="Fechar" data-icon="close"></button><span class="eyebrow">CONTA OLIST</span><h2>Conexão do catálogo</h2><p>Os produtos exibidos pertencem à conta autorizada na Olist. Ao desconectar, a sessão e os produtos serão removidos desta tela.</p><div class="dialog-actions"><button class="button" value="cancel">Voltar</button><button id="logout" type="button" class="button danger">Desconectar conta</button></div></form></dialog>
+  <dialog id="account-dialog" class="drawer modal" aria-labelledby="account-title">
+    <div class="modal-body">
+      <div class="modal-head"><h2 id="account-title"><span data-icon="link"></span> Conta Olist</h2><button class="icon-button drawer-close" type="button" aria-label="Fechar" data-icon="close"></button></div>
+      <div class="modal-scroll"><p class="modal-text">Os produtos exibidos pertencem à conta autorizada na Olist. Ao desconectar, a sessão e os produtos serão removidos desta tela.</p></div>
+      <div class="modal-foot"><button class="button" type="button" value="cancel">Voltar</button><button id="logout" type="button" class="button danger">Desconectar conta</button></div>
+    </div>
+  </dialog>
+
+  <dialog id="product-dialog" class="drawer modal" aria-labelledby="product-title">
+    <div class="modal-body">
+      <div class="modal-head"><h2 id="product-title"><span data-icon="box"></span> Produto</h2><button class="icon-button drawer-close" type="button" aria-label="Fechar" data-icon="close"></button></div>
+      <div id="product-body" class="modal-scroll product-detail"></div>
+      <div class="modal-foot"><span id="product-updated" class="bag-total"></span><button id="product-refresh" class="button" type="button" data-admin-only>Atualizar da Olist</button><button id="product-add" class="button primary" type="button" hidden><span data-icon="bag"></span> Adicionar à sacola</button><button class="button" type="button" value="cancel">Fechar</button></div>
+    </div>
+  </dialog>
 
   <dialog id="integrations-drawer" class="drawer" aria-labelledby="integrations-title">
     <div class="drawer-body">

@@ -19,10 +19,12 @@ export function rowsFromCatalog(catalog, tenantId) {
     };
   });
 }
+const imageOf = (row, byId) => row.image_url || (row.parent_id != null ? byId.get(Number(row.parent_id))?.image_url : null) || null;
 export function catalogFromRows(rows, tenant) {
   const products = [], stock = [], grade = [], children = new Map(), settings = [], done = [];
+  const byId = new Map(rows.map(r => [Number(r.id), r]));
   for (const r of rows) {
-    products.push({ id: Number(r.id), sku: r.sku, descricao: r.description, situacao: r.situation, tipo: r.type, tipoVariacao: r.variation_type, unidade: r.unit, gtin: r.gtin, dataAlteracao: r.olist_updated_at, precos: { preco: num(r.price), precoPromocional: num(r.promo_price), precoCusto: num(r.cost_price), precoCustoMedio: num(r.avg_cost_price) }, estoque: { localizacao: r.location } });
+    products.push({ id: Number(r.id), sku: r.sku, descricao: r.description, situacao: r.situation, tipo: r.type, tipoVariacao: r.variation_type, unidade: r.unit, gtin: r.gtin, dataAlteracao: r.olist_updated_at, imagem: imageOf(r, byId), custoFicha: num(r.detail_cost), precos: { preco: num(r.price), precoPromocional: num(r.promo_price), precoCusto: num(r.cost_price), precoCustoMedio: num(r.avg_cost_price) }, estoque: { localizacao: r.location } });
     if (r.stock_updated_at || r.stock_available != null) stock.push([Number(r.id), { saldo: num(r.stock_balance), reservado: num(r.stock_reserved), disponivel: num(r.stock_available) }]);
     if (r.grade) grade.push([Number(r.id), r.grade]);
     if (r.parent_id != null) { const pid = Number(r.parent_id); if (!children.has(pid)) children.set(pid, []); children.get(pid).push(Number(r.id)); }
@@ -35,7 +37,7 @@ export function catalogFromRows(rows, tenant) {
 
 // Buyer price: cost (or average cost when cost is empty) plus the product margin (or the tenant default).
 export function buyerPrice(row, defaultMargin) {
-  const cost = num(row.cost_price) > 0 ? num(row.cost_price) : num(row.avg_cost_price) > 0 ? num(row.avg_cost_price) : null;
+  const cost = num(row.cost_price) > 0 ? num(row.cost_price) : num(row.avg_cost_price) > 0 ? num(row.avg_cost_price) : num(row.detail_cost) > 0 ? num(row.detail_cost) : null;
   if (cost == null) return null;
   const margin = row.margin_percent == null ? Number(defaultMargin || 0) : Number(row.margin_percent);
   return Math.round(cost * (1 + margin / 100) * 100) / 100;
@@ -139,9 +141,59 @@ export function bmsRoutes({ repo, send, readJson, fault, olist, tenantSession, f
         const shown = rows.filter(r => r.visible !== false && r.situation === 'A' && (r.parent_id == null || byId.get(Number(r.parent_id))?.visible !== false));
         const children = new Map();
         shown.forEach(r => { if (r.parent_id != null && byId.has(Number(r.parent_id))) { const pid = Number(r.parent_id); if (!children.has(pid)) children.set(pid, []); children.get(pid).push(Number(r.id)); } });
-        const products = shown.map(r => ({ id: Number(r.id), sku: r.sku, descricao: r.description, situacao: r.situation, tipo: r.type, tipoVariacao: r.variation_type, unidade: r.unit, gtin: r.gtin, precoComprador: buyerPrice(r, tenant?.default_margin) }));
+        const products = shown.map(r => ({ id: Number(r.id), sku: r.sku, descricao: r.description, situacao: r.situation, tipo: r.type, tipoVariacao: r.variation_type, unidade: r.unit, gtin: r.gtin, imagem: imageOf(r, byId), precoComprador: buyerPrice(r, tenant?.default_margin) }));
         const stock = shown.filter(r => r.stock_available != null).map(r => [Number(r.id), { disponivel: num(r.stock_available) }]);
         return send(res, 200, { products, stock, children: [...children], grade: shown.filter(r => r.grade).map(r => [Number(r.id), r.grade]), savedAt: tenant?.catalog_saved_at }), true;
+      }
+
+      // Product detail: fetched from Olist when a user opens it, then saved (users feed the database).
+      const detailMatch = path.match(/^\/api\/products\/(\d+)\/detail$/);
+      if (method === 'GET' && detailMatch) {
+        const pid = Number(detailMatch[1]);
+        const [tenant, found] = await Promise.all([repo.getTenant(tenantId), repo.productsByIds(tenantId, [pid])]);
+        let row = found[0];
+        if (!row || !row.in_catalog) throw fault(404, 'Produto não encontrado.');
+        if (who.role !== 'admin' && (row.visible === false || row.situation !== 'A')) throw fault(404, 'Produto não encontrado.');
+        let warning = null;
+        const fresh = row.details_synced_at && Date.now() - Date.parse(row.details_synced_at) < 10 * 60000;
+        if (!fresh || url.searchParams.get('refresh') === '1') {
+          try {
+            const session = await tenantSession(tenantId);
+            const d = await olist(session, `/produtos/${pid}`, '/produtos/{id}', data => typeof data === 'object' && data.id != null);
+            const images = (Array.isArray(d.anexos) ? d.anexos : []).map(a => a?.url).filter(u => typeof u === 'string' && /^https?:\/\//i.test(u)).slice(0, 12);
+            const history = (Array.isArray(d.custos) ? d.custos : []).filter(c => num(c?.precoCusto) > 0 || num(c?.custoMedio) > 0).sort((a, b) => String(b.data).localeCompare(String(a.data)));
+            const latestCost = history[0] ? (num(history[0].custoMedio) > 0 ? num(history[0].custoMedio) : num(history[0].precoCusto)) : null;
+            const dims = d.dimensoes || {};
+            const details = {
+              complemento: typeof d.descricaoComplementar === 'string' ? d.descricaoComplementar.replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 4000) : null,
+              marca: d.marca?.nome || null, categoria: d.categoria?.caminhoCompleto || d.categoria?.nome || null, ncm: d.ncm || null, origem: d.origem ?? null, garantia: d.garantia || null,
+              dimensoes: { largura: num(dims.largura), altura: num(dims.altura), comprimento: num(dims.comprimento), pesoLiquido: num(dims.pesoLiquido), pesoBruto: num(dims.pesoBruto) },
+              estoqueMinimo: num(d.estoque?.minimo), estoqueMaximo: num(d.estoque?.maximo),
+              variacoes: (Array.isArray(d.variacoes) ? d.variacoes : []).map(v => ({ id: v.id, sku: v.sku, grade: Array.isArray(v.grade) ? v.grade.map(g => `${g.chave}: ${g.valor}`).join(' · ') : '' })).slice(0, 300)
+            };
+            const patch = {
+              details, images, image_url: images[0] || null, details_synced_at: new Date().toISOString(), detail_cost: latestCost,
+              description: d.descricao || row.description, sku: d.sku ?? row.sku, gtin: d.gtin ?? row.gtin, unit: d.unidade ?? row.unit, situation: d.situacao ?? row.situation,
+              ...(d.precos ? { price: num(d.precos.preco), promo_price: num(d.precos.precoPromocional), cost_price: num(d.precos.precoCusto), avg_cost_price: num(d.precos.precoCustoMedio) } : {}),
+              ...(d.produtoPai?.id ? { parent_id: Number(d.produtoPai.id) } : {}),
+              ...(d.tipoVariacao === 'P' ? { variations_loaded: true } : {})
+            };
+            await repo.updateProducts(tenantId, [pid], patch);
+            // A parent's detail lists its variations: link them so the catalog groups correctly.
+            const kids = details.variacoes.map(v => Number(v.id)).filter(Number.isSafeInteger);
+            if (kids.length) await repo.updateProducts(tenantId, kids, { parent_id: pid });
+            row = { ...row, ...patch };
+          } catch (error) { warning = error.message; }
+        }
+        const parent = row.parent_id != null ? (await repo.productsByIds(tenantId, [Number(row.parent_id)]))[0] : null;
+        const image = row.image_url || parent?.image_url || null;
+        const images = Array.isArray(row.images) && row.images.length ? row.images : (Array.isArray(parent?.images) ? parent.images : []);
+        const base = { id: pid, sku: row.sku, descricao: row.description, unidade: row.unit, gtin: row.gtin, situacao: row.situation, imagem: image, imagens: images, detalhes: row.details || null, atualizadoEm: row.details_synced_at || null, estoque: { disponivel: num(row.stock_available) }, precoComprador: buyerPrice(row, tenant?.default_margin), aviso: warning };
+        if (who.role !== 'admin') {
+          const { estoqueMinimo, estoqueMaximo, ...publicDetails } = base.detalhes || {};
+          return send(res, 200, { ...base, detalhes: base.detalhes ? publicDetails : null }), true;
+        }
+        return send(res, 200, { ...base, precos: { preco: num(row.price), precoPromocional: num(row.promo_price), precoCusto: num(row.cost_price), precoCustoMedio: num(row.avg_cost_price), custoFicha: num(row.detail_cost) }, estoque: { saldo: num(row.stock_balance), reservado: num(row.stock_reserved), disponivel: num(row.stock_available) }, visivel: row.visible !== false, margem: row.margin_percent == null ? null : num(row.margin_percent), margemPadrao: num(tenant?.default_margin) || 0 }), true;
       }
 
       // Product settings (admin): visibility for buyers and margin.

@@ -177,3 +177,34 @@ test('login page assets load without a session and the form never sends credenti
   const form = await call('/auth/app-login', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: undefined });
   assert.equal(form.status, 302); assert.equal(form.headers.location, '/?login=invalid');
 });
+test('opening a product fetches its Olist detail once, saves it and hides cost from buyers', async t => {
+  let detailCalls = 0;
+  const { repo, call, loginAs } = await setup(t, async (url) => {
+    if (url.endsWith('/token')) return json({ access_token: 'tok', refresh_token: 'ref', expires_in: 14400 });
+    if (url.endsWith('/produtos/1')) { detailCalls++; return json({ id: 1, descricao: 'Sandália', tipoVariacao: 'P', descricaoComplementar: '<p>Confortável&nbsp;e <b>leve</b></p>', marca: { nome: 'Marca X' }, categoria: { caminhoCompleto: 'Calçados > Sandálias' }, anexos: [{ url: 'https://cdn.example/img1.jpg' }, { url: 'javascript:alert(1)' }], precos: { preco: 100, precoCusto: 0, precoCustoMedio: 0 }, custos: [{ data: '2026-09-01', precoCusto: 35, custoMedio: 0 }, { data: '2026-10-01', precoCusto: 0, custoMedio: 38 }], variacoes: [{ id: 2, grade: [{ chave: 'Tamanho', valor: '37' }] }, { id: 3, grade: [] }] }); }
+    return json({});
+  });
+  const admin = await loginAs('admin', 'senha-admin');
+  await connectOlist(call, admin);
+  const flat = { ...catalog, children: [], variationsDone: [] };
+  await call('/api/cache', { method: 'PUT', cookie: admin, body: { catalog: flat } });
+  const detail = (await call('/api/products/1/detail', { cookie: admin })).data;
+  assert.equal(detail.imagem, 'https://cdn.example/img1.jpg');
+  assert.deepEqual(detail.imagens, ['https://cdn.example/img1.jpg']);
+  assert.equal(detail.detalhes.complemento, 'Confortável e leve');
+  assert.equal(detail.precos.custoFicha, 38);
+  assert.equal(detail.precoComprador, 41.8); // 38 + default 10%
+  const kid = repo.tables.olist_products.find(p => p.id === 2);
+  assert.equal(kid.parent_id, 1);
+  await call('/api/products/1/detail', { cookie: admin });
+  assert.equal(detailCalls, 1, 'cached for 10 minutes');
+  const cached = (await call('/api/cache', { cookie: admin })).data.catalog;
+  assert.equal(cached.products.find(p => p.id === 2).imagem, 'https://cdn.example/img1.jpg', 'variation inherits parent image');
+  await repo.upsertCustomer({ tenant_id: TENANT, cnpj: '12345678000190', legal_name: 'C' });
+  await repo.createUser({ tenant_id: TENANT, customer_id: repo.tables.customers[0].id, name: 'B', username: 'b', password_hash: await hashPassword('senha-b123'), role: 'buyer' });
+  const buyer = await loginAs('b', 'senha-b123');
+  const seen = (await call('/api/products/2/detail', { cookie: buyer })).data;
+  assert.equal(seen.imagem, 'https://cdn.example/img1.jpg');
+  assert.equal(seen.precos, undefined);
+  assert.ok(!JSON.stringify(seen).includes('custo'));
+});

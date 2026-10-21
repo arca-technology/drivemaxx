@@ -64,7 +64,7 @@ function stockOf(p, field = 'disponivel') {
 const settingOf = p => state.settings.get(p.id) || { visible: true, margin: null };
 function buyerPriceOf(p) {
   if (state.role === 'buyer') return p.precoComprador ?? null;
-  const cost = Number(p.precos?.precoCusto) > 0 ? Number(p.precos.precoCusto) : Number(p.precos?.precoCustoMedio) > 0 ? Number(p.precos.precoCustoMedio) : null;
+  const cost = Number(p.precos?.precoCusto) > 0 ? Number(p.precos.precoCusto) : Number(p.precos?.precoCustoMedio) > 0 ? Number(p.precos.precoCustoMedio) : Number(p.custoFicha) > 0 ? Number(p.custoFicha) : null;
   if (cost == null) return null;
   const margin = settingOf(p).margin ?? state.defaultMargin;
   return Math.round(cost * (1 + Number(margin) / 100) * 100) / 100;
@@ -75,16 +75,18 @@ const SITUATION = { A: 'Ativo', I: 'Inativo', E: 'Excluído' };
 const TYPE = { S: 'Simples', K: 'Kit', V: 'Com variações', F: 'Fabricado', M: 'Matéria-prima', P: 'Produto' };
 const VARIATION = { N: 'Simples', P: 'Produto pai', V: 'Variação' };
 const COLUMNS = [
+  { key: 'imagem', label: 'IMAGEM', width: 72, pinLeft: true, database: true, value: p => p.imagem ? 'Com imagem' : 'Sem imagem', render: p => `<button class="thumb" type="button" data-detail="${p.id}" aria-label="Ver detalhes de ${escape(p.descricao)}">${p.imagem ? `<img src="${escape(p.imagem)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : icon('box')}</button>` },
   { key: 'descricao', label: 'PRODUTO', width: 340, fixed: true, value: p => p.descricao || '', render: p => {
     const sub = state.parentOf.has(p.id) ? (state.grade.get(p.id) || p.sku || `ID ${p.id}`) : (p.sku || `ID ${p.id}`);
     const kids = state.children.get(p.id)?.length;
-    return `<div class="product-cell"><span class="product-icon">${icon('box')}</span><span class="product-text"><span class="product-name">${escape(p.descricao || 'Produto sem descrição')}</span><span class="product-sub">${escape(sub)}${kids ? ` · ${kids} variações` : ''}</span></span></div>`;
+    const name = state.database ? `<button class="product-name link" type="button" data-detail="${p.id}">${escape(p.descricao || 'Produto sem descrição')}</button>` : `<span class="product-name">${escape(p.descricao || 'Produto sem descrição')}</span>`;
+    return `<div class="product-cell">${state.database ? '' : `<span class="product-icon">${icon('box')}</span>`}<span class="product-text">${name}<span class="product-sub">${escape(sub)}${kids ? ` · ${kids} variações` : ''}</span></span></div>`;
   } },
   { key: 'sku', label: 'CÓDIGO / SKU', width: 160, mono: true, value: p => p.sku || '' },
   { key: 'situacao', roles: ['admin'], label: 'SITUAÇÃO', width: 120, value: p => SITUATION[p.situacao] || 'Não informado', render: p => `<span class="status-pill ${p.situacao === 'E' ? 'deleted' : p.situacao !== 'A' ? 'inactive' : ''}"><i></i>${SITUATION[p.situacao] || 'Não informado'}</span>` },
   { key: 'disponivel', label: 'ESTOQUE DISPONÍVEL', width: 150, numeric: true, value: p => stockOf(p), render: p => { const v = stockOf(p), kids = kidsOf(p.id); const done = kids.length ? kids.every(k => state.stockDone.has(k)) : state.stockDone.has(p.id); return v == null ? `<span class="pending" title="${done ? 'Sem estoque informado' : 'Carregando estoque'}">${done ? '—' : '···'}</span>` : `<b class="${v <= 0 ? 'stock-out' : ''}">${qty(v)}</b>`; } },
   { key: 'precoComprador', label: 'PREÇO COMPRADOR', width: 150, numeric: true, database: true, value: p => buyerPriceOf(p), render: p => { const v = buyerPriceOf(p); return v == null ? '<span class="pending" title="Sem custo cadastrado na Olist">—</span>' : `<b>${money(v)}</b>`; } },
-  { key: 'visivel', label: 'VISÍVEL', width: 100, roles: ['admin'], database: true, value: p => settingOf(p).visible ? 'Sim' : 'Não', render: p => { const on = settingOf(p).visible; return `<button class="toggle${on ? ' on' : ''}" type="button" role="switch" aria-checked="${on}" data-visible="${p.id}" title="${on ? 'Visível para compradores' : 'Oculto para compradores'}"><i></i></button>`; } },
+  { key: 'visivel', label: 'VISÍVEL', width: 90, roles: ['admin'], database: true, pinRight: true, value: p => settingOf(p).visible ? 'Sim' : 'Não', render: p => { const on = settingOf(p).visible; return `<button class="toggle${on ? ' on' : ''}" type="button" role="switch" aria-checked="${on}" data-visible="${p.id}" title="${on ? 'Visível para compradores' : 'Oculto para compradores'}"><i></i></button>`; } },
   { key: 'margem', label: 'MARGEM %', width: 120, numeric: true, roles: ['admin'], database: true, value: p => settingOf(p).margin, render: p => { const m = settingOf(p).margin; return `<input class="margin-input" type="number" step="0.01" data-margin="${p.id}" value="${m ?? ''}" placeholder="${escape(String(state.defaultMargin))}" aria-label="Margem de ${escape(p.descricao)}">`; } },
   { key: 'saldo', roles: ['admin'], label: 'SALDO EM ESTOQUE', width: 140, numeric: true, hidden: true, value: p => stockOf(p, 'saldo'), render: p => qty(stockOf(p, 'saldo')) },
   { key: 'reservado', roles: ['admin'], label: 'RESERVADO', width: 120, numeric: true, hidden: true, value: p => stockOf(p, 'reservado'), render: p => qty(stockOf(p, 'reservado')) },
@@ -102,7 +104,10 @@ const COLUMNS = [
 const columnByKey = Object.fromEntries(COLUMNS.map(c => [c.key, c]));
 let visibility = store.get('drive-cols-v1', {});
 const allowedColumns = () => COLUMNS.filter(c => (!c.roles || c.roles.includes(state.role)) && (!c.database || state.database));
-const visibleColumns = () => allowedColumns().filter(c => c.fixed || (c.key in visibility ? visibility[c.key] : !c.hidden));
+// Pinned columns are always shown: image and product on the left, visibility on the right edge.
+const locked = c => c.fixed || c.pinLeft || c.pinRight;
+const visibleColumns = () => { const cols = allowedColumns().filter(c => locked(c) || (c.key in visibility ? visibility[c.key] : !c.hidden)); return [...cols.filter(c => !c.pinRight), ...cols.filter(c => c.pinRight)]; };
+const colClass = c => `${c.fixed ? 'product-col ' : ''}${c.pinLeft ? 'image-col ' : ''}${c.pinRight ? 'pin-right ' : ''}${c.numeric ? 'numeric ' : ''}`;
 const cellText = (p, c) => { const v = c.value(p); return v == null ? '' : String(v); };
 
 // ── Theme ────────────────────────────────────────────────────
@@ -195,9 +200,10 @@ function renderHead() {
   // CSP forbids inline style attributes; widths are set through the DOM.
   $('cols').replaceChildren(...[44, 44, ...cols.map(c => c.width)].map(width => { const col = document.createElement('col'); col.style.width = `${width}px`; return col; }));
   $('products-table').style.minWidth = `${88 + cols.reduce((s, c) => s + c.width, 0)}px`;
+  $('products-table').style.setProperty('--product-left', `${88 + cols.filter(c => c.pinLeft).reduce((s, c) => s + c.width, 0)}px`);
   $('head-row').innerHTML = `<th class="select-col" scope="col"><input id="select-all" type="checkbox" aria-label="Selecionar todos os produtos filtrados"></th><th class="expand-col${state.hierarchy.size !== 2 ? ' filtered' : ''}" scope="col" data-key="__group" title="Expandir ou recolher todos · Ctrl + clique para filtrar o agrupamento"><button id="expand-all" class="expand-btn" type="button" aria-label="Expandir todos">▸</button></th>` + cols.map(c => {
     const sorted = state.sort === c.key, filtered = !!state.filters[c.key];
-    return `<th scope="col" data-key="${c.key}" class="${c.fixed ? 'product-col ' : ''}${c.numeric ? 'numeric ' : ''}${filtered ? 'filtered' : ''}" aria-sort="${sorted ? (state.direction === 1 ? 'ascending' : 'descending') : 'none'}" title="Clique para ordenar · Ctrl + clique para filtrar"><span class="th-inner"><span>${c.label}</span>${filtered ? icon('filter') : icon(sorted ? (state.direction === 1 ? 'up' : 'down') : 'sort')}</span></th>`;
+    return `<th scope="col" data-key="${c.key}" class="${colClass(c)}${filtered ? 'filtered' : ''}" aria-sort="${sorted ? (state.direction === 1 ? 'ascending' : 'descending') : 'none'}" title="Clique para ordenar · Ctrl + clique para filtrar"><span class="th-inner"><span>${c.label}</span>${filtered ? icon('filter') : icon(sorted ? (state.direction === 1 ? 'up' : 'down') : 'sort')}</span></th>`;
   }).join('');
 }
 function rowHtml(p, cols, kind, group) {
@@ -205,7 +211,7 @@ function rowHtml(p, cols, kind, group) {
   let expand = '';
   if (kind === 'parent') { const open = state.expanded.has(p.id); expand = `<button class="expand-btn" type="button" data-expand="${p.id}" aria-expanded="${open}" aria-label="${open ? 'Recolher' : 'Expandir'} variações">${open ? '▾' : '▸'}</button>`; }
   else if (kind === 'parent-empty') expand = `<span class="expand-count" title="Variações ocultas pelo filtro">${group.total}</span>`;
-  return `<tr class="${kind === 'child' ? 'child-row' : kind.startsWith('parent') ? 'parent-row' : ''}" data-id="${p.id}"${kind === 'child' ? ` data-parent="${state.parentOf.get(p.id)}"` : ''}><td class="select-col"><input type="checkbox" data-select="${p.id}" aria-label="Selecionar ${escape(p.descricao)}"${checked}></td><td class="expand-col">${expand}</td>${cols.map(c => `<td class="${c.fixed ? 'product-col ' : ''}${c.numeric ? 'numeric ' : ''}${c.mono ? 'mono' : ''}"${c.fixed ? ` title="${escape(p.descricao)}"` : ''}>${c.render ? c.render(p) : escape(c.value(p) || '—')}</td>`).join('')}</tr>`;
+  return `<tr class="${kind === 'child' ? 'child-row' : kind.startsWith('parent') ? 'parent-row' : ''}" data-id="${p.id}"${kind === 'child' ? ` data-parent="${state.parentOf.get(p.id)}"` : ''}><td class="select-col"><input type="checkbox" data-select="${p.id}" aria-label="Selecionar ${escape(p.descricao)}"${checked}></td><td class="expand-col">${expand}</td>${cols.map(c => `<td class="${colClass(c)}${c.mono ? 'mono' : ''}"${c.fixed ? ` title="${escape(p.descricao)}"` : ''}>${c.render ? c.render(p) : escape(c.value(p) || '—')}</td>`).join('')}</tr>`;
 }
 function render() {
   view = buildView();
@@ -347,7 +353,7 @@ function openGroupFilter(th) {
   setTimeout(() => pop.querySelector('input')?.focus(), 20);
 }
 function openColumnManager(anchor) {
-  const pop = openPopover(anchor, `<div class="popover-head"><b>COLUNAS</b><span>${visibleColumns().length} visíveis</span></div><div class="pop-list tall">${allowedColumns().map(c => `<label class="pop-item"><input type="checkbox" value="${c.key}"${visibleColumns().includes(c) ? ' checked' : ''}${c.fixed ? ' disabled' : ''}><span>${escape(c.label)}</span></label>`).join('')}</div><div class="popover-actions"><button id="cols-reset" class="pop-btn" type="button">Restaurar padrão</button></div>`, 250);
+  const pop = openPopover(anchor, `<div class="popover-head"><b>COLUNAS</b><span>${visibleColumns().length} visíveis</span></div><div class="pop-list tall">${allowedColumns().map(c => `<label class="pop-item"><input type="checkbox" value="${c.key}"${visibleColumns().includes(c) ? ' checked' : ''}${locked(c) ? ' disabled' : ''}><span>${escape(c.label)}</span></label>`).join('')}</div><div class="popover-actions"><button id="cols-reset" class="pop-btn" type="button">Restaurar padrão</button></div>`, 250);
   pop.addEventListener('change', event => { visibility[event.target.value] = event.target.checked; store.set('drive-cols-v1', visibility); pop.querySelector('.popover-head span').textContent = `${visibleColumns().length} visíveis`; render(); });
   pop.querySelector('#cols-reset').onclick = () => { visibility = {}; store.set('drive-cols-v1', visibility); closePopover(); render(); };
 }
@@ -654,7 +660,7 @@ $('logout').onclick = async () => {
     const response = await fetch('/auth/logout', { method: 'POST' });
     if (!response.ok) throw new Error('Não foi possível desconectar. Tente novamente.');
     ++state.generation; state.loading = false; resetCatalog();
-    connection(false); $('refresh').classList.remove('spinning'); $('account-dialog').close(); notice(''); render();
+    connection(false); $('refresh').classList.remove('spinning'); closeDrawer($('account-dialog')); notice(''); render();
     $('footer-label').textContent = 'Aguardando conexão com a Olist';
   } catch (error) { notice(error.message, true); } finally { $('logout').disabled = false; }
 };
