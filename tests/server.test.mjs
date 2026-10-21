@@ -129,7 +129,7 @@ test('HTTPS preview redirects localhost and uses a secure cookie on its canonica
 test('company diagnostic uses /info and can run immediately after OAuth', async t => {
   const { get } = await setup(t, async (url, options) => {
     if (url.endsWith('/token')) return json({ access_token: 'private-token', expires_in: 3600 });
-    assert.equal(url, 'https://api.tiny.com.br/public-api/v3/info');
+    assert.equal(url, 'https://erp.tiny.com.br/public-api/v3/info');
     assert.equal(options.headers.Authorization, 'Bearer private-token');
     return json({ razaoSocial: 'Empresa teste' });
   });

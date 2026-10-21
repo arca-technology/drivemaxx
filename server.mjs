@@ -8,7 +8,7 @@ import { cookieSessions } from './session.mjs';
 const root = dirname(fileURLToPath(import.meta.url));
 const AUTH = 'https://accounts.tiny.com.br/realms/tiny/protocol/openid-connect/auth';
 const TOKEN = 'https://accounts.tiny.com.br/realms/tiny/protocol/openid-connect/token';
-const API = 'https://api.tiny.com.br/public-api/v3';
+const API = 'https://erp.tiny.com.br/public-api/v3';
 const id = () => randomBytes(32).toString('base64url');
 const fault = (status, message, extra = {}) => Object.assign(new Error(message), { status, ...extra });
 
