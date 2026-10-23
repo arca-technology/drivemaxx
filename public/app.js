@@ -39,7 +39,7 @@ const state = {
   filters: {}, selected: new Set(), expanded: new Set(), hierarchy: new Set(['parent', 'variations']),
   stock: new Map(), children: new Map(), parentOf: new Map(), grade: new Map(), variationsDone: new Set(), stockDone: new Set(),
   visibleIds: [], enriching: false, enrichNote: '',
-  role: 'admin', database: false, settings: new Map(), defaultMargin: 0, defaultFixed: 0
+  role: 'admin', database: false, settings: new Map(), defaultMargin: 0, defaultFixed: 0, booting: true
 };
 const money = value => value == null || value === '' ? '—' : new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(value));
 const escape = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
@@ -251,6 +251,10 @@ function render() {
   $('selection-count').textContent = number(state.selected.size);
   $('count').textContent = number(state.total || state.products.length);
   $('empty').hidden = slice.length > 0;
+  // While the session and the saved catalog load, show a loader; the "connect Olist" art only when Olist is not connected.
+  const booting = state.booting || (state.loading && !state.products.length);
+  $('empty').classList.toggle('booting', booting);
+  $('empty').classList.toggle('connected', state.authenticated);
   if (state.authenticated) {
     const criteria = $('search').value.trim() || Object.keys(state.filters).length;
     $('empty-title').textContent = state.loading ? 'Buscando seus produtos...' : state.products.length ? 'Nenhum produto encontrado' : state.complete ? 'Seu catálogo está vazio' : 'Vamos carregar seu catálogo';
@@ -259,6 +263,7 @@ function render() {
     $('empty-title').textContent = 'Seus produtos. Mais perto.';
     $('empty-description').innerHTML = 'Conecte sua conta Olist para visualizar, buscar e<br> organizar todos os produtos do seu catálogo.';
   }
+  if (booting) { $('empty-title').textContent = 'Carregando…'; $('empty-description').textContent = state.loading ? 'Buscando seus produtos na Olist.' : 'Preparando seu catálogo.'; }
   $('import').hidden = !state.authenticated || state.loading || state.products.length > 0;
   $('range').textContent = view.length ? `${number(start + 1)}–${number(start + slice.length)} de ${number(view.length)}` : '0 produtos';
   $('page-label').textContent = `${state.page} / ${pages}`;
@@ -766,7 +771,7 @@ async function init() {
     if (typeof applyRole === 'function') applyRole(me);
     $('app-user').textContent = me.name || me.user || '—';
     $('app-logout').hidden = $('settings-logout').hidden = !me.gate;
-    if (state.role !== 'admin') return initBuyer();
+    if (state.role !== 'admin') return await initBuyer();
     const [data, saved] = await Promise.all([api('/api/session'), api('/api/cache').catch(() => null)]);
     if (saved) {
       cache.storage = saved.storage; cache.events = saved.events || [];
@@ -778,10 +783,12 @@ async function init() {
     }
     $('callback').textContent = data.redirectUri;
     connection(data.authenticated);
+    if (!state.products.length) $('footer-label').textContent = data.authenticated ? 'Olist conectada · importe os produtos' : 'Aguardando conexão com a Olist';
     if (!data.configured) { $('connect').hidden = true; notice('As credenciais Olist ainda não foram configuradas no servidor.', true); }
     render();
     if (state.complete && data.authenticated) syncIncremental();
   } catch (error) { if (error.message !== 'Sessão encerrada.') notice('Não foi possível conectar ao servidor. Verifique a conexão e recarregue a página.', true); }
+  finally { state.booting = false; render(); }
 }
 render();
 init();

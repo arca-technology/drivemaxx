@@ -417,3 +417,9 @@ html[data-theme=dark] .file-kind.pdf{background:#38211f;color:#ffb6a9}
   .ob-skip-mobile{display:inline;margin-right:auto}
 }
 @media(max-width:760px){#products-table td[data-key]::before,.module-table td[data-label]::before,.bag-table td[data-label]::before{font-family:Inter,"Segoe UI",Arial,sans-serif}}
+/* Empty state: loader while booting; the Olist art only when not connected */
+.empty-loading{display:none;place-items:center;height:72px;margin-bottom:14px}
+.empty-state.booting .empty-loading{display:grid}
+.spinner{width:30px;height:30px;border:3px solid var(--line);border-top-color:var(--blue);border-radius:50%;animation:spin .9s linear infinite}
+.empty-state.booting .connection-art,.empty-state.booting .eyebrow,.empty-state.booting #connect,.empty-state.booting #connect-hint,.empty-state.booting #setup,.empty-state.booting #import,.empty-state.connected .connection-art,.empty-state.connected .eyebrow{display:none!important}
+@media(prefers-reduced-motion:reduce){.spinner{animation-duration:2.5s}}
