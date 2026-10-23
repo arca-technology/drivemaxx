@@ -331,3 +331,4 @@ html[data-theme=dark] .detail-warning{background:#3a2f12;color:#f5c66b}
 html[data-theme=dark] .file-kind.pdf{background:#38211f;color:#ffb6a9}
 .muted-row td{opacity:.65}
 .settings-hint{display:block;margin-top:2px;color:var(--muted);font-size:10px;line-height:1.4}.settings-row>span{min-width:0}
+.toolbar-center #orders-xml{margin-left:8px;flex-shrink:0}

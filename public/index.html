@@ -84,7 +84,7 @@
   <main id="view-orders" hidden>
     <section class="toolbar" aria-label="Ferramentas de pedidos">
       <div class="toolbar-start"><span class="count-badge"><span data-icon="bag"></span><b id="orders-count">0</b> pedidos</span></div>
-      <div class="toolbar-center"><label class="search"><span data-icon="search"></span><input id="orders-search" placeholder="Buscar por número, cliente, CNPJ ou comprador..." autocomplete="off" aria-label="Buscar pedidos"></label></div>
+      <div class="toolbar-center"><label class="search"><span data-icon="search"></span><input id="orders-search" placeholder="Buscar por número, cliente, CNPJ ou comprador..." autocomplete="off" aria-label="Buscar pedidos"></label><button id="orders-xml" class="icon-button bordered" type="button" title="Novo pedido por XML da NF-e" aria-label="Novo pedido por XML da NF-e" data-icon="plus" hidden></button></div>
       <div class="toolbar-end"><button id="orders-refresh" class="icon-button bordered" title="Atualizar pedidos" aria-label="Atualizar pedidos" data-icon="refresh"></button></div>
     </section>
     <div id="orders-notice" class="module-notice" role="status" hidden></div>
@@ -130,9 +130,9 @@
         <div id="xml-summary" class="order-meta" hidden></div>
         <table class="bag-table" id="xml-table" hidden><thead><tr><th>ITEM DA NOTA</th><th>PRODUTO NO CATÁLOGO</th><th class="numeric">PREÇO</th><th class="numeric">QUANTIDADE</th><th class="numeric">TOTAL</th></tr></thead><tbody id="xml-rows"></tbody></table>
         <div class="xml-attach" id="xml-attach" hidden>
-          <div class="xml-attach-head"><b>Anexos em PDF</b><label class="integration-action file-button"><input id="xml-pdfs" type="file" accept="application/pdf,.pdf" multiple hidden>ADICIONAR PDF</label></div>
+          <div class="xml-attach-head"><b>PDF de envio</b><label class="integration-action file-button"><input id="xml-pdfs" type="file" accept="application/pdf,.pdf" multiple hidden>ANEXAR PDF</label></div>
           <ul id="xml-pdf-list" class="file-list"></ul>
-          <p class="xml-hint">Até 4 MB por arquivo. O XML da nota também fica anexado ao pedido.</p>
+          <p class="xml-hint">Etiqueta ou documentos de envio, até 4 MB por arquivo. O XML da nota também fica anexado ao pedido.</p>
         </div>
         <label class="field" id="xml-notes-field" hidden><span>Observações</span><textarea id="xml-notes" rows="2" maxlength="1000" placeholder="Opcional"></textarea></label>
       </div>

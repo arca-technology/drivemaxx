@@ -15,6 +15,7 @@ function applyRole(me) {
   $('customer-olist-item').hidden = admin || !me.customer;
   $('settings-integrations-group').hidden = !admin && !me.customer;
   $('settings-help').hidden = !me.database;
+  $('orders-xml').hidden = admin || !me.database;
   if (me.database) setTimeout(() => startOnboarding(me), 0);
   setTimeout(updatePush, 0);
   document.querySelectorAll('[data-admin-only]').forEach(el => { el.hidden = !admin || (el.hasAttribute('data-database-only') && !me.database); });
@@ -689,6 +690,7 @@ $('xml-order').onclick = () => {
   $('xml-file-label').textContent = 'Selecionar XML da NF-e'; xmlError(''); renderXmlOrder();
   openDrawer($('xml-dialog'));
 };
+$('orders-xml').onclick = () => $('xml-order').onclick();
 $('xml-form').addEventListener('submit', event => event.preventDefault());
 $('xml-file').addEventListener('change', async () => {
   const file = $('xml-file').files[0];
@@ -696,6 +698,7 @@ $('xml-file').addEventListener('change', async () => {
   xmlError('');
   try {
     if (file.size > MAX_FILE) throw new Error('O XML passa de 4 MB.');
+    if (!state.products.length) throw new Error('Nenhum produto liberado no seu catálogo ainda. Fale com o fornecedor.');
     const parsed = parseNfe(await file.text());
     xmlOrder = { file, nfe: parsed.nfe, lines: matchNfe(parsed.lines) };
     $('xml-file-label').textContent = 'Trocar XML';
