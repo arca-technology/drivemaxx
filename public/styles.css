@@ -333,93 +333,143 @@ html[data-theme=dark] .file-kind.pdf{background:#38211f;color:#ffb6a9}
 .settings-hint{display:block;margin-top:2px;color:var(--muted);font-size:10px;line-height:1.4}.settings-row>span{min-width:0}
 .toolbar-center #orders-xml{margin-left:8px;flex-shrink:0}
 
-/* ── Mobile (≤ 760px) ─────────────────────────────────────── */
-.ob-skip-mobile{display:none}
-@media(max-width:760px){
-  /* Header: brand + actions on top, modules as full-width tabs below */
-  .header{height:96px;grid-template-columns:1fr auto;grid-template-rows:52px 44px;grid-template-areas:"brand actions" "tabs tabs";gap:0 8px;padding:0 8px 0 12px}
-  .header .brand{grid-area:brand;max-width:none}
-  .header .brand>span:last-child{font-size:0;letter-spacing:0}
-  .header .brand>span:last-child strong{font-size:12px;letter-spacing:.4px}
-  .header .header-actions{grid-area:actions;gap:0}
-  .header .page-tabs{grid-area:tabs;height:44px;margin:0 -8px 0 -12px;border-top:1px solid var(--line)}
-  .header .page-tabs .page-tab{flex:1;justify-content:center;height:44px;padding:0 6px;font-size:10px;letter-spacing:.8px}
-  main{height:calc(100dvh - 96px)}
-  /* Toolbar: search on top, count + actions on one row */
-  .toolbar{gap:8px}
-  .toolbar-start{order:2;flex:1;min-width:0;flex-wrap:wrap}
-  .toolbar-end{order:3;width:auto;margin-left:auto}
-  .view-button,.toolbar-line,#export,#columns{display:none}
-  .filterbar:has(.filter-hint){display:none}
-  .table-footer{flex-wrap:wrap;justify-content:center;gap:6px 12px}
-  /* Products: one card per product */
-  #products-table{display:block;width:100%!important;min-width:0!important;table-layout:auto}
-  #products-table colgroup,#products-table thead{display:none}
-  #products-table tbody{display:block}
-  #products-table tr{display:grid;grid-template-columns:22px 52px minmax(0,1fr) minmax(0,1fr);column-gap:12px;row-gap:0;padding:12px 14px;border-bottom:1px solid var(--line);position:relative;background:var(--bg)}
-  #products-table tr.child-row{padding-left:28px;background:var(--surface)}
-  #products-table td{display:block;height:auto;min-width:0;padding:0;border:0!important;background:transparent!important;position:static!important;box-shadow:none!important;white-space:normal;overflow:visible;text-align:left}
-  #products-table td.select-col{grid-column:1;grid-row:1/span 12;padding-top:16px}
-  #products-table td.image-col{grid-column:2;grid-row:1/span 12}
-  #products-table td[data-key]:not(.product-col):not(.image-col){margin-top:8px}
-  #products-table td.product-col{grid-column:3/5;grid-row:1;padding-right:30px}
-  #products-table td.expand-col{position:absolute!important;top:10px;right:8px}
-  #products-table td.expand-col:empty{display:none}
-  #products-table td[data-key]::before{content:attr(data-label);display:block;margin-bottom:2px;color:var(--muted);font-size:9px;font-weight:700;letter-spacing:.3px}
-  #products-table td.product-col::before,#products-table td.image-col::before{content:none}
-  #products-table td:is([data-key=sku],[data-key=situacao],[data-key=unidade],[data-key=gtin],[data-key=tipo],[data-key=tipoVariacao],[data-key=localizacao],[data-key=dataAlteracao],[data-key=id],[data-key=saldo],[data-key=reservado],[data-key=preco],[data-key=precoPromocional],[data-key=precoCusto]){display:none}
-  #products-table td b{font-size:13px}
-  #products-table .thumb{width:52px;height:52px}
-  #products-table .product-name{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:12px;line-height:16px}
-  #products-table .margin-input{width:100%;max-width:140px;height:32px}
-  #products-table .toggle{margin-top:2px}
-  /* Buyer: the bag floats at the bottom once something is selected */
-  body.role-buyer #bag:not([disabled]){position:fixed;left:12px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom));z-index:30;height:48px;justify-content:center;font-size:13px;background:var(--blue);border-color:var(--blue);color:#fff;box-shadow:0 8px 24px #2563eb55}
-  body.role-buyer #bag:not([disabled]) b{background:#fff3;color:#fff}
-  body.role-buyer:has(#bag:not([disabled])) #view-products .table-footer{margin-bottom:72px}
-  /* Orders and users: cards */
-  .module-table{display:block;width:100%;min-width:0!important}
-  .module-table thead{display:none}
-  .module-table tbody{display:block}
-  .module-table tr{display:grid;grid-template-columns:1fr 1fr;gap:8px 12px;padding:12px 14px;border-bottom:1px solid var(--line)}
-  .module-table td{display:block;height:auto;min-width:0;padding:0;border:0!important;background:transparent!important;white-space:normal;text-align:left!important;overflow:visible}
-  .module-table td[data-label]::before{content:attr(data-label);display:block;margin-bottom:2px;color:var(--muted);font-size:9px;font-weight:700;letter-spacing:.3px}
-  .module-table td:last-child{grid-column:1/-1;display:flex;gap:6px;justify-content:flex-end}
-  .module-table td:last-child::before{content:none}
-  /* Tables inside panels (bag, XML order, order items) */
-  .bag-table,.bag-table tbody{display:block}
-  .bag-table thead{display:none}
-  .bag-table tr{display:grid;grid-template-columns:repeat(auto-fit,minmax(72px,1fr));gap:6px 10px;padding:10px 14px;border-bottom:1px solid var(--line)}
-  .bag-table td{display:block;height:auto;padding:0;border:0!important;text-align:left!important}
-  .bag-table td:first-child,#xml-table td:nth-child(2){grid-column:1/-1}
-  .bag-table td[data-label]:not(:first-child)::before{content:attr(data-label);display:block;margin-bottom:2px;color:var(--muted);font-size:9px;font-weight:700;letter-spacing:.3px}
-  #xml-table td:nth-child(2)::before{content:none}
-  .qty-input{width:100%;height:34px}
-  .modal-foot{flex-wrap:wrap}
-  .modal-foot .bag-total{flex-basis:100%}
-  .order-meta{padding:12px 14px}
-  /* Product detail: one scrolling column */
-  .pd{overflow-y:auto}
-  .pd>*{flex-shrink:0}
-  .pd-head{position:sticky;top:0;z-index:2;flex-wrap:wrap;gap:8px;min-height:0;padding:10px 12px;background:var(--bg)}
-  .pd-thumbs .empty{display:none}
-  .pd-heading{flex:1 1 100%}
-  .pd-heading h2{white-space:normal;font-size:14px;line-height:1.3}
-  .pd-actions{width:100%;justify-content:flex-end}
-  .pd-btn{height:36px;min-width:36px}
-  .pd-grid{flex:none;overflow:visible;padding:12px}
-  .pd-card{overflow:visible;min-height:0}
-  .pd-pane{overflow:visible}
-  .pd-grid>.pd-card:last-child{min-height:0}
-  .pd-main{height:260px}
-  .pd-foot span,.pd-foot{font-size:9px}
-  /* Onboarding: skip button in the footer (the side rail is hidden) */
-  .ob-skip-mobile{display:inline;margin-right:auto}
-}
-@media(max-width:760px){#products-table td[data-key]::before,.module-table td[data-label]::before,.bag-table td[data-label]::before{font-family:Inter,"Segoe UI",Arial,sans-serif}}
 /* Empty state: loader while booting; the Olist art only when not connected */
 .empty-loading{display:none;place-items:center;height:72px;margin-bottom:14px}
 .empty-state.booting .empty-loading{display:grid}
 .spinner{width:30px;height:30px;border:3px solid var(--line);border-top-color:var(--blue);border-radius:50%;animation:spin .9s linear infinite}
 .empty-state.booting .connection-art,.empty-state.booting .eyebrow,.empty-state.booting #connect,.empty-state.booting #connect-hint,.empty-state.booting #setup,.empty-state.booting #import,.empty-state.connected .connection-art,.empty-state.connected .eyebrow{display:none!important}
 @media(prefers-reduced-motion:reduce){.spinner{animation-duration:2.5s}}
+
+/* ── Mobile (≤ 760px): app-like layout ──────────────────────── */
+.ob-skip-mobile{display:none}
+@media(max-width:760px){
+  :root{--nav-h:58px;--safe-t:env(safe-area-inset-top,0px);--safe-b:env(safe-area-inset-bottom,0px)}
+  input,select,textarea{font-size:16px!important}
+  .mlabel,#products-table td[data-key]::before,.module-table td[data-label]::before,.bag-table td[data-label]::before{font-family:Inter,"Segoe UI",Arial,sans-serif}
+
+  /* Header: brand + actions on top; modules become a bottom tab bar */
+  .header{height:calc(56px + var(--safe-t));grid-template-columns:1fr auto;gap:8px;padding:var(--safe-t) 4px 0 14px}
+  .header .brand{max-width:none}
+  .header .brand>span:last-child{font-size:0;letter-spacing:0}
+  .header .brand>span:last-child strong{font-size:13px;letter-spacing:.5px}
+  .header .header-actions{gap:0}
+  .header .header-actions .icon-button{width:40px;height:40px}
+  .header .page-tabs{position:fixed;left:0;right:0;bottom:0;z-index:40;display:flex;height:calc(var(--nav-h) + var(--safe-b));margin:0;padding:0 0 var(--safe-b);border-top:1px solid var(--line);background:var(--bg);box-shadow:0 -6px 24px var(--shadow)}
+  .header .page-tabs .page-tab{flex:1;height:var(--nav-h);flex-direction:column;justify-content:center;gap:4px;padding:0;border:0;border-top:2px solid transparent;font-size:9px;letter-spacing:.6px}
+  .header .page-tabs .page-tab.active{border-top-color:var(--blue);color:var(--blue)}
+  .header .page-tabs .page-tab .tab-icon{display:block}
+  .header .page-tabs .page-tab svg{width:20px;height:20px;color:currentColor}
+  main{height:calc(100dvh - 56px - var(--safe-t) - var(--nav-h) - var(--safe-b))}
+  main>.footer{display:none}
+
+  /* Toolbar: search on top, count + actions below */
+  .toolbar{gap:8px;min-height:0;padding:10px 12px}
+  .toolbar-center{order:1;width:100%}
+  .toolbar-start{order:2;flex:1;min-width:0;flex-wrap:wrap;gap:6px}
+  .toolbar-end{order:3;width:auto;margin-left:auto;gap:6px}
+  .search{height:42px;border-radius:10px}
+  .search kbd,.view-button,.toolbar-line,#export,#columns{display:none}
+  .toolbar .icon-button.bordered{width:42px;height:42px;border-radius:10px}
+  .toolbar-center #orders-xml{margin-left:8px;background:var(--blue);border-color:var(--blue);color:#fff}
+  .filterbar:has(.filter-hint){display:none}
+  .table-footer{justify-content:space-between;gap:8px;padding:8px 12px}
+  .table-footer .page-size{display:none}
+  .table-footer .icon-button.small{width:34px;height:34px}
+
+  /* Products: compact cards — photo, name, then stock and price */
+  #products-table{display:block;width:100%!important;min-width:0!important;table-layout:auto}
+  #products-table colgroup,#products-table thead{display:none}
+  #products-table tbody{display:block}
+  #products-table tr{display:grid;grid-template-columns:68px minmax(0,1fr) minmax(0,1fr);column-gap:12px;row-gap:0;padding:12px 14px;border-bottom:1px solid var(--line);position:relative;background:var(--bg)}
+  #products-table tr.child-row{padding-left:30px;background:var(--surface)}
+  #products-table td{display:block;height:auto;min-width:0;padding:0;border:0!important;background:transparent!important;position:static!important;box-shadow:none!important;white-space:normal;overflow:visible;text-align:left}
+  #products-table td.image-col{grid-column:1;grid-row:1/span 12}
+  #products-table td.select-col{position:absolute!important;top:16px;left:18px;z-index:5;display:grid;place-items:center;width:26px;height:26px;border-radius:7px;background:var(--bg)!important;box-shadow:0 1px 4px #0003!important}
+  #products-table td.select-col input{width:18px;height:18px;margin:0;accent-color:var(--blue)}
+  #products-table .thumb{position:relative;z-index:0}
+  #products-table td.product-col{grid-column:2/4;grid-row:1;padding-right:26px}
+  #products-table td.expand-col{position:absolute!important;top:10px;right:6px}
+  #products-table td.expand-col:empty{display:none}
+  #products-table td[data-key]:not(.product-col):not(.image-col){margin-top:10px}
+  #products-table td[data-key]::before{content:attr(data-label);display:block;margin-bottom:3px;color:var(--muted);font-size:9px;font-weight:650;letter-spacing:.3px}
+  #products-table td.product-col::before,#products-table td.image-col::before{content:none}
+  #products-table td:is([data-key=sku],[data-key=situacao],[data-key=unidade],[data-key=gtin],[data-key=tipo],[data-key=tipoVariacao],[data-key=localizacao],[data-key=dataAlteracao],[data-key=id],[data-key=saldo],[data-key=reservado],[data-key=preco],[data-key=precoPromocional],[data-key=precoCusto]){display:none}
+  #products-table .thumb{width:68px;height:68px;border-radius:10px}
+  #products-table .product-name{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;white-space:normal;font-size:13px;line-height:17px}
+  #products-table .product-sub{margin-top:2px;font-size:11px}
+  #products-table td b{font-size:13px}
+  body.role-buyer #products-table td[data-key=precoFinal]{text-align:right}
+  #products-table td[data-key=precoFinal] b{font-size:16px;font-weight:750;color:var(--blue)}
+  #products-table .margin-input{width:100%;max-width:150px;height:38px;border-radius:8px}
+  body.role-buyer #products-table td[data-key=disponivel]::before{content:'ESTOQUE'}
+
+  /* Buyer: floating bag above the tab bar */
+  body.role-buyer #bag:not([disabled]){position:fixed;left:12px;right:12px;bottom:calc(var(--nav-h) + var(--safe-b) + 10px);z-index:30;height:50px;justify-content:center;border-radius:12px;font-size:14px;background:var(--blue);border-color:var(--blue);color:#fff;box-shadow:0 10px 28px #2563eb55}
+  body.role-buyer #bag:not([disabled]) b{background:#fff3;color:#fff}
+  body.role-buyer #bag[disabled]{display:none}
+  body.role-buyer:has(#bag:not([disabled])) #view-products .table-footer{margin-bottom:70px}
+
+  /* Orders: tappable cards — number + status, customer, date + total */
+  #orders-rows tr{display:grid;grid-template-columns:1fr auto;grid-template-areas:"num status" "client client" "buyer buyer" "date total";gap:4px 12px;padding:14px;border-bottom:1px solid var(--line);cursor:pointer}
+  #orders-rows td{display:block;height:auto;padding:0;border:0!important;background:transparent!important;white-space:normal;text-align:left!important}
+  #orders-rows td::before{content:none!important}
+  #orders-rows td:nth-child(1){grid-area:num;font-size:15px}
+  #orders-rows td:nth-child(2){grid-area:date;align-self:end;color:var(--muted);font-size:11px}
+  #orders-rows td:nth-child(3){grid-area:client}
+  #orders-rows td:nth-child(4){grid-area:buyer;color:var(--muted);font-size:11px}
+  #orders-rows td:nth-child(4) small{display:none}
+  #orders-rows td:nth-child(5),#orders-rows td:nth-child(8){display:none}
+  #orders-rows td:nth-child(6){grid-area:total;text-align:right!important}
+  #orders-rows td:nth-child(6) b{font-size:16px}
+  #orders-rows td:nth-child(7){grid-area:status;justify-self:end}
+  body.role-buyer #orders-rows td:nth-child(3),body.role-buyer #orders-rows td:nth-child(4){display:none}
+
+  /* Users: cards */
+  .module-table{display:block;width:100%;min-width:0!important}
+  .module-table thead{display:none}
+  .module-table tbody{display:block}
+  #users-rows tr{display:grid;grid-template-columns:1fr 1fr;gap:8px 12px;padding:14px;border-bottom:1px solid var(--line)}
+  #users-rows td{display:block;height:auto;min-width:0;padding:0;border:0!important;background:transparent!important;white-space:normal;text-align:left!important;overflow:visible}
+  #users-rows td[data-label]::before{content:attr(data-label);display:block;margin-bottom:2px;color:var(--muted);font-size:9px;font-weight:650;letter-spacing:.3px}
+  #users-rows td:last-child{grid-column:1/-1;display:flex;gap:6px;justify-content:flex-end}
+  #users-rows td:last-child::before{content:none}
+
+  /* Panels: full screen sheets, tables stacked */
+  .drawer.modal{width:100vw}
+  .bag-table,.bag-table tbody{display:block}
+  .bag-table thead{display:none}
+  .bag-table tr{display:grid;grid-template-columns:repeat(auto-fit,minmax(72px,1fr));gap:6px 10px;padding:12px 16px;border-bottom:1px solid var(--line)}
+  .bag-table td{display:block;height:auto;padding:0;border:0!important;text-align:left!important}
+  .bag-table td:first-child,#xml-table td:nth-child(2){grid-column:1/-1}
+  .bag-table td[data-label]:not(:first-child)::before{content:attr(data-label);display:block;margin-bottom:2px;color:var(--muted);font-size:9px;font-weight:650;letter-spacing:.3px}
+  #xml-table td:nth-child(2)::before{content:none}
+  .qty-input{width:100%;height:40px}
+  .modal-foot{flex-wrap:wrap;padding:12px 16px calc(12px + var(--safe-b))}
+  .modal-foot .bag-total{flex-basis:100%}
+  .modal-foot .button{flex:1;height:46px}
+  .order-meta{padding:12px 16px}
+
+  /* Product detail: single scrolling column; buyer's add button pinned at the bottom */
+  .pd{overflow-y:auto}
+  .pd>*{flex-shrink:0}
+  .pd-head{position:sticky;top:0;z-index:2;flex-wrap:wrap;gap:8px;min-height:0;padding:calc(10px + var(--safe-t)) 12px 10px;background:var(--bg)}
+  .pd-heading{flex:1 1 100%;padding-right:48px}
+  .pd-head .drawer-close{position:absolute;top:calc(8px + var(--safe-t));right:10px}
+  .pd-heading h2{white-space:normal;font-size:15px;line-height:1.3}
+  .pd-actions{width:100%;justify-content:flex-start}
+  .pd-actions:not(:has(.pd-btn:not(.drawer-close):not([hidden]))){display:none}
+  .pd-btn{height:38px;min-width:38px}
+  #product-add:not([hidden]){position:fixed;left:12px;right:12px;bottom:calc(12px + var(--safe-b));z-index:5;height:50px;justify-content:center;border-radius:12px;font-size:14px;background:var(--blue);border-color:var(--blue);color:#fff;box-shadow:0 10px 28px #2563eb55}
+  body.role-buyer .pd-foot{padding-bottom:76px}
+  .pd-grid{flex:none;overflow:visible;padding:12px}
+  .pd-card{overflow:visible;min-height:0}
+  .pd-pane{overflow:visible}
+  .pd-grid>.pd-card:last-child{min-height:0}
+  .pd-main{height:280px}
+  .pd-thumbs .empty{display:none}
+  .pd-foot span,.pd-foot{font-size:9px}
+
+  /* Onboarding: skip button in the footer (the side rail is hidden) */
+  .ob-skip-mobile{display:inline;margin-right:auto}
+  .ob-foot{padding-bottom:calc(12px + var(--safe-b))}
+}
