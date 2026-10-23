@@ -22,6 +22,8 @@ function applyRole(me) {
   $('orders-tab-label').textContent = admin ? 'PEDIDOS' : 'MEUS PEDIDOS';
   document.body.classList.toggle('role-buyer', !admin);
   $('default-margin').value = String(state.defaultMargin);
+  // Buyers see the price they pay as their sale price.
+  COLUMNS.find(c => c.key === 'precoComprador').label = admin ? 'PREÇO COMPRADOR' : 'PREÇO DE VENDA';
   if (!admin) {
     ['refresh', 'import', 'connect', 'connect-hint', 'setup'].forEach(id => { $(id).hidden = true; });
     $('search').placeholder = 'Buscar por nome, SKU ou GTIN...';
@@ -334,7 +336,7 @@ function renderDetail(d, loading = false) {
   const priceLabel = kids.length ? (kidPrices.length ? (Math.min(...kidPrices) === Math.max(...kidPrices) ? money(kidPrices[0]) : `${money(Math.min(...kidPrices))} – ${money(Math.max(...kidPrices))}`) : 'Sem preço') : d.precoComprador != null ? money(d.precoComprador) : 'Sem preço';
   const own = (field, fallback) => kids.length ? qty(stockOf(p, field)) : qty(fallback ?? stockOf(p, field));
   const rows = [
-    [kids.length ? 'Preço comprador (variações)' : 'Preço comprador', priceLabel, 'accent'],
+    [`${admin ? 'Preço comprador' : 'Preço de venda'}${kids.length ? ' (variações)' : ''}`, priceLabel, 'accent'],
     ['Estoque disponível', stock == null ? '—' : qty(stock), stock != null && stock <= 0 ? 'danger' : ''],
     ...(admin ? [
       ['Saldo em estoque', own('saldo', d.estoque?.saldo)], ['Reservado', own('reservado', d.estoque?.reservado)],
@@ -351,7 +353,7 @@ function renderDetail(d, loading = false) {
   $('pd-data').innerHTML = `<table class="pd-table data">${rows.map(([k, v, cls]) => `<tr class="${cls || ''}"><th>${k}</th><td>${cls === 'raw' ? v : escape(v)}</td></tr>`).join('')}</table>`;
   // Right: variations
   $('pd-variations').innerHTML = kids.length
-    ? `<table class="pd-table vars"><thead><tr>${state.role === 'buyer' ? '<th></th>' : ''}<th>GRADE</th><th>SKU</th><th class="numeric">ESTOQUE</th><th class="numeric">PREÇO COMPRADOR</th></tr></thead><tbody>${kids.map(k => { const s = stockOf(k), price = buyerPriceOf(k); return `<tr data-variation="${k.id}">${state.role === 'buyer' ? `<td><input type="checkbox" data-pick="${k.id}"${state.selected.has(k.id) ? ' checked' : ''}${price == null ? ' disabled' : ''} aria-label="Selecionar ${escape(state.grade.get(k.id) || k.sku || '')}"></td>` : ''}<td><b>${escape(state.grade.get(k.id) || k.descricao)}</b></td><td class="mono">${escape(k.sku || '')}</td><td class="numeric${s != null && s <= 0 ? ' danger' : ''}">${qty(s)}</td><td class="numeric">${price != null ? money(price) : '—'}</td></tr>`; }).join('')}</tbody></table>`
+    ? `<table class="pd-table vars"><thead><tr>${state.role === 'buyer' ? '<th></th>' : ''}<th>GRADE</th><th>SKU</th><th class="numeric">ESTOQUE</th><th class="numeric">${state.role === 'admin' ? 'PREÇO COMPRADOR' : 'PREÇO DE VENDA'}</th></tr></thead><tbody>${kids.map(k => { const s = stockOf(k), price = buyerPriceOf(k); return `<tr data-variation="${k.id}">${state.role === 'buyer' ? `<td><input type="checkbox" data-pick="${k.id}"${state.selected.has(k.id) ? ' checked' : ''}${price == null ? ' disabled' : ''} aria-label="Selecionar ${escape(state.grade.get(k.id) || k.sku || '')}"></td>` : ''}<td><b>${escape(state.grade.get(k.id) || k.descricao)}</b></td><td class="mono">${escape(k.sku || '')}</td><td class="numeric${s != null && s <= 0 ? ' danger' : ''}">${qty(s)}</td><td class="numeric">${price != null ? money(price) : '—'}</td></tr>`; }).join('')}</tbody></table>`
     : `<p class="pd-empty">${loading && p.tipoVariacao === 'P' ? 'Carregando variações…' : 'Produto sem variações.'}</p>`;
   $('product-add').hidden = state.role !== 'buyer';
   $('product-add').disabled = loading || (d.precoComprador == null && !kids.some(k => buyerPriceOf(k) != null));
