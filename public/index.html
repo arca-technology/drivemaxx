@@ -7,11 +7,12 @@
   <link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="manifest" href="/manifest.webmanifest"><meta name="theme-color" content="#24354d"><link rel="apple-touch-icon" href="/apple-touch-icon.png"><link rel="stylesheet" href="/styles.css"><script src="/app.js" defer></script><script src="/bms.js" defer></script>
 </head>
 <body>
+  <div id="toasts" class="toasts" popover="manual" aria-live="polite"></div>
   <header class="header">
     <a class="brand" href="/" aria-label="ENTERPRISER DRIVE MAXX"><span class="brand-mark">D<span>↗</span></span><span>ENTERPRISER <b>•</b> <strong>DRIVE MAXX</strong></span></a>
     <nav class="page-tabs" aria-label="Módulos">
       <button class="page-tab active" type="button" data-view="products" aria-current="page"><span class="tab-icon" data-icon="box"></span><span>PRODUTOS</span></button>
-      <button class="page-tab" type="button" data-view="orders" hidden><span class="tab-icon" data-icon="bag"></span><span id="orders-tab-label">PEDIDOS</span></button>
+      <button class="page-tab" type="button" data-view="orders" hidden><span class="tab-icon" data-icon="bag"></span><span id="orders-tab-label">PEDIDOS</span><b id="orders-badge" class="tab-badge" hidden>0</b></button>
       <button class="page-tab" type="button" data-view="users" hidden><span class="tab-icon" data-icon="users"></span><span>USUÁRIOS</span></button>
     </nav>
     <div class="header-actions">
@@ -359,6 +360,7 @@
       <section class="settings-group" id="settings-app">
         <h3>Aplicativo</h3>
         <div class="settings-row"><span>Instalar no computador ou celular<small id="install-hint" class="settings-hint"></small></span><button id="install-app" class="integration-action" type="button">INSTALAR</button></div>
+        <label class="settings-row" id="sound-row" hidden><span>Som e aviso na tela de novo pedido<small class="settings-hint">Toca um alerta e mostra o pedido quando o app está aberto.</small></span><input id="order-sound" type="checkbox" checked></label>
         <div class="settings-row" id="push-row" hidden><span>Notificações de novos pedidos<small id="push-hint" class="settings-hint"></small></span><button id="push-toggle" class="integration-action" type="button">ATIVAR</button></div>
       </section>
       <section class="settings-group" id="settings-help" hidden>

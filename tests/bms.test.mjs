@@ -318,6 +318,15 @@ test('order from NF-e XML keeps the invoice, stores attachments and admin push s
   assert.match(download.headers['content-disposition'], /^attachment; filename\*=UTF-8''boleto_.._x.pdf$/);
   assert.equal((await call(`/api/orders/${order.data.id}/files/${pdf.data.id}`, { cookie: other })).status, 404);
 
+  // New-order alerts: the first check starts counting from now; a new order shows up until the admin marks orders as seen.
+  assert.equal((await call('/api/orders/unseen', { cookie: buyer })).status, 403);
+  assert.equal((await call('/api/orders/unseen', { cookie: admin })).data.count, 0);
+  const second = await call('/api/orders', { method: 'POST', cookie: buyer, body: { items: [{ id: 4, quantity: 1 }] } });
+  const unseen = (await call('/api/orders/unseen', { cookie: admin })).data;
+  assert.equal(unseen.count, 1); assert.equal(unseen.orders[0].id, second.data.id); assert.equal(unseen.orders[0].customer, 'CLIENTE LTDA');
+  assert.equal((await call('/api/orders/seen', { method: 'POST', cookie: admin, body: {} })).status, 200);
+  assert.equal((await call('/api/orders/unseen', { cookie: admin })).data.count, 0);
+
   // Push: only admins subscribe; the VAPID key is created once and stored sealed.
   assert.equal((await call('/api/push', { cookie: buyer })).status, 403);
   const keyA = (await call('/api/push', { cookie: admin })).data.publicKey;

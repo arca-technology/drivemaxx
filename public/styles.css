@@ -473,3 +473,16 @@ html[data-theme=dark] .file-kind.pdf{background:#38211f;color:#ffb6a9}
   .ob-skip-mobile{display:inline;margin-right:auto}
   .ob-foot{padding-bottom:calc(12px + var(--safe-b))}
 }
+
+/* New-order alerts */
+.tab-badge{display:inline-grid;place-items:center;min-width:18px;height:18px;margin-left:6px;padding:0 5px;border-radius:9px;background:#e5484d;color:#fff;font-size:10px;font-weight:800;letter-spacing:0}
+.toasts{position:fixed;inset:72px 16px auto auto;margin:0;padding:0;border:0;background:transparent;overflow:visible;z-index:1000;display:flex;flex-direction:column;gap:10px;width:min(380px,calc(100vw - 24px));pointer-events:none}
+.toast{pointer-events:auto;display:flex;align-items:center;gap:10px;padding:12px 10px 12px 14px;border:1px solid var(--line);border-left:4px solid var(--blue);border-radius:10px;background:var(--raised);box-shadow:0 12px 32px #0f172a2e;animation:toast-in .25s ease-out}
+.toast.leaving{animation:toast-out .2s ease-in forwards}
+.toast-icon{display:grid;place-items:center;width:34px;height:34px;flex-shrink:0;border-radius:8px;background:var(--blue-soft);color:var(--blue)}
+.toast-text{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;font-size:12px}.toast-text b{font-size:13px}.toast-text span{color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.toast .button.primary{height:32px;padding:0 10px;font-size:11px;box-shadow:none}
+.toast-close{width:28px;height:28px}
+@keyframes toast-in{from{opacity:0;transform:translateX(24px)}}@keyframes toast-out{to{opacity:0;transform:translateX(24px)}}
+@media(max-width:760px){.toasts{inset:calc(64px + env(safe-area-inset-top,0px)) 12px auto auto}.header .page-tabs .page-tab{position:relative}.header .page-tabs .tab-badge{position:absolute;top:6px;left:calc(50% + 6px);margin:0}}
+@media(prefers-reduced-motion:reduce){.toast,.toast.leaving{animation:none}}

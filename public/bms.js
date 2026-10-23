@@ -18,6 +18,7 @@ function applyRole(me) {
   $('orders-xml').hidden = admin || !me.database;
   if (me.database) setTimeout(() => startOnboarding(me), 0);
   setTimeout(updatePush, 0);
+  if (admin && me.database) setTimeout(startOrderAlerts, 0);
   document.querySelectorAll('[data-admin-only]').forEach(el => { el.hidden = !admin || (el.hasAttribute('data-database-only') && !me.database); });
   document.querySelector('[data-view="orders"]').hidden = !me.database;
   document.querySelector('[data-view="users"]').hidden = !(me.database && admin);
@@ -152,7 +153,7 @@ document.querySelectorAll('.page-tab[data-view]').forEach(tab => {
     const view = tab.dataset.view;
     document.querySelectorAll('.page-tab[data-view]').forEach(t => { t.classList.toggle('active', t === tab); t.toggleAttribute('aria-current', t === tab); });
     ['products', 'orders', 'users'].forEach(v => { $(`view-${v}`).hidden = v !== view; });
-    if (view === 'orders') loadOrders();
+    if (view === 'orders') { loadOrders(); markOrdersSeen(); }
     if (view === 'users') loadUsers();
   };
 });
@@ -814,3 +815,80 @@ function labelRows(tbody) {
   tbody.querySelectorAll(':scope > tr').forEach(tr => [...tr.children].forEach((td, i) => { if (heads[i]) td.dataset.label = heads[i]; else delete td.dataset.label; }));
 }
 document.querySelectorAll('.module-table tbody, .bag-table tbody').forEach(tbody => new MutationObserver(() => labelRows(tbody)).observe(tbody, { childList: true }));
+
+
+// ── Admin: new-order alerts (popup + sound with the app open, counter on the Pedidos tab and app icon) ──
+const alerts = { known: null, timer: null, audio: null };
+const soundOn = () => { try { return localStorage.getItem('drive-order-sound') !== 'off'; } catch { return true; } };
+// Browsers only allow audio after a user gesture: unlock it on the first tap/click.
+addEventListener('pointerdown', () => {
+  try { alerts.audio = alerts.audio || new (window.AudioContext || window.webkitAudioContext)(); alerts.audio.resume(); } catch { /* no audio */ }
+}, { once: true, capture: true });
+function chime() {
+  if (!soundOn() || !alerts.audio) return;
+  try {
+    const ctx = alerts.audio; ctx.resume();
+    const start = ctx.currentTime + 0.02;
+    [[880, 0], [1175, 0.15], [1568, 0.3]].forEach(([freq, at]) => {
+      const osc = ctx.createOscillator(), gain = ctx.createGain();
+      osc.type = 'sine'; osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.0001, start + at);
+      gain.gain.exponentialRampToValueAtTime(0.3, start + at + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + at + 0.4);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(start + at); osc.stop(start + at + 0.45);
+    });
+  } catch { /* ignore */ }
+}
+function orderToast(o) {
+  const el = document.createElement('div');
+  el.className = 'toast';
+  el.innerHTML = `<span class="toast-icon">${icon('bag')}</span><div class="toast-text"><b>Novo pedido #${escape(String(o.number))}</b><span>${escape(o.customer || 'Cliente')} · ${money(o.total)}</span></div><button class="button primary" type="button">Ver pedido</button><button class="icon-button toast-close" type="button" aria-label="Fechar aviso">${icon('close')}</button>`;
+  const close = () => { el.classList.add('leaving'); setTimeout(() => { el.remove(); if (!$('toasts').children.length) try { $('toasts').hidePopover(); } catch { /* no popover API */ } }, 200); };
+  el.querySelector('.button').onclick = () => { close(); document.querySelector('[data-view="orders"]').click(); openOrder(o.id); };
+  el.querySelector('.toast-close').onclick = close;
+  $('toasts').prepend(el);
+  while ($('toasts').children.length > 4) $('toasts').lastElementChild.remove();
+  // Popover = top layer, so the alert shows even over an open panel; re-showing brings it to the front.
+  try { $('toasts').hidePopover(); } catch { /* not open */ }
+  try { $('toasts').showPopover(); } catch { /* no popover API: stays as a fixed layer */ }
+  setTimeout(close, 60000);
+}
+function setOrderBadge(count) {
+  $('orders-badge').hidden = !count;
+  $('orders-badge').textContent = count > 99 ? '99+' : String(count);
+  try { count ? navigator.setAppBadge?.(count) : navigator.clearAppBadge?.(); } catch { /* unsupported */ }
+}
+const ordersOnScreen = () => !$('view-orders').hidden && document.visibilityState === 'visible';
+async function pollOrders() {
+  if (state.role !== 'admin') return;
+  try {
+    const r = await api('/api/orders/unseen');
+    const fresh = alerts.known ? r.orders.filter(o => !alerts.known.has(o.id)) : [];
+    alerts.known = new Set([...(alerts.known || []), ...r.orders.map(o => o.id)]);
+    if (fresh.length) {
+      if ($('order-sound').checked) { fresh.slice(0, 3).reverse().forEach(orderToast); chime(); }
+      if (!$('view-orders').hidden) loadOrders();
+    }
+    if (ordersOnScreen() && r.count) return markOrdersSeen();
+    setOrderBadge(r.count);
+  } catch { /* try again on the next tick */ }
+}
+async function markOrdersSeen() {
+  if (state.role !== 'admin' || !state.database) return;
+  setOrderBadge(0);
+  try { await api('/api/orders/seen', json({})); } catch { /* ignore */ }
+}
+function startOrderAlerts() {
+  $('sound-row').hidden = false;
+  $('order-sound').checked = soundOn();
+  if (alerts.timer) return;
+  pollOrders();
+  alerts.timer = setInterval(pollOrders, 20000);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') pollOrders(); });
+  navigator.serviceWorker?.addEventListener('message', event => { if (event.data?.type === 'push' && event.data.data?.orderId) pollOrders(); });
+}
+$('order-sound').addEventListener('change', () => {
+  try { localStorage.setItem('drive-order-sound', $('order-sound').checked ? 'on' : 'off'); } catch { /* per-device preference only */ }
+  if ($('order-sound').checked) chime();
+});

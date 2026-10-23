@@ -286,6 +286,20 @@ export function bmsRoutes({ repo, send, readJson, readRaw, fault, olist, tenantS
       }
 
       // Orders.
+      // New-order alerts (admin): orders created after the admin last opened the orders module.
+      if (method === 'GET' && path === '/api/orders/unseen') {
+        requireAdmin(who);
+        const user = await repo.getUser(who.id);
+        let since = user?.orders_seen_at;
+        if (!since) { since = new Date().toISOString(); await repo.updateUser(tenantId, who.id, { orders_seen_at: since }); }
+        const rows = await repo.listOrdersSince(tenantId, since);
+        return send(res, 200, { count: rows.length, orders: rows.slice(0, 10).map(o => ({ id: o.id, number: o.number, total: num(o.total), status: o.status, createdAt: o.created_at, customer: o.customers?.trade_name || o.customers?.legal_name || null })) }), true;
+      }
+      if (method === 'POST' && path === '/api/orders/seen') {
+        requireAdmin(who); sameOrigin(req);
+        await repo.updateUser(tenantId, who.id, { orders_seen_at: new Date().toISOString() });
+        return send(res, 200, { ok: true }), true;
+      }
       if (method === 'GET' && path === '/api/orders') {
         const rows = await repo.listOrders(tenantId, who.role === 'admin' ? {} : { customerId: who.customerId || '00000000-0000-0000-0000-000000000000' });
         return send(res, 200, rows.map(o => ({ id: o.id, number: o.number, status: o.status, total: num(o.total), notes: o.notes, createdAt: o.created_at, olistOrderNumber: o.olist_order_number, olistError: o.olist_error, customer: o.customers, buyer: o.app_users, items: Array.isArray(o.order_items) ? o.order_items.length : null }))), true;
@@ -327,7 +341,7 @@ export function bmsRoutes({ repo, send, readJson, readRaw, fault, olist, tenantS
         const nfeKey = digits(body.nfe?.key), nfe = body.source === 'xml' ? { source: 'xml', nfe_key: nfeKey.length === 44 ? nfeKey : null, nfe_number: text(digits(body.nfe?.number), 20) } : {};
         const order = await repo.createOrder({ tenant_id: tenantId, customer_id: customer.id, user_id: who.id, status: 'novo', total, notes: text(body.notes, 1000), ...nfe }, items);
         const sent = await sendOrderToOlist(tenantId, order.id);
-        await notify(tenantId, { title: `Novo pedido #${order.number}`, body: `${customer.trade_name || customer.legal_name} · ${total.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}${nfe.source ? ' · via XML' : ''}${sent?.olist_error ? ' · erro ao enviar para a Olist' : ''}`, url: '/?view=orders', tag: `order-${order.id}` });
+        await notify(tenantId, { title: `Novo pedido #${order.number}`, body: `${customer.trade_name || customer.legal_name} · ${total.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}${nfe.source ? ' · via XML' : ''}${sent?.olist_error ? ' · erro ao enviar para a Olist' : ''}`, url: '/?view=orders', tag: `order-${order.id}`, sticky: true, orderId: order.id });
         return send(res, 201, { id: order.id, number: order.number, total, status: sent?.status || order.status, olistOrderNumber: sent?.olist_order_number || null, olistError: sent?.olist_error || null }), true;
       }
       // Order files: the buyer attaches the NF-e XML and PDFs; admin and the buyer can download them.

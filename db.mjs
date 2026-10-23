@@ -58,7 +58,7 @@ export function supabaseRepo({ url, key, fetcher = fetch }) {
   const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   const eq = value => `eq.${encodeURIComponent(value)}`;
   const inList = values => `in.(${values.map(v => encodeURIComponent(v)).join(',')})`;
-  const userCols = 'id,tenant_id,customer_id,name,username,email,password_hash,role,active,last_login_at,onboarded_at,created_at';
+  const userCols = 'id,tenant_id,customer_id,name,username,email,password_hash,role,active,last_login_at,onboarded_at,orders_seen_at,created_at';
   const chunk = (list, size) => Array.from({ length: Math.ceil(list.length / size) }, (_, i) => list.slice(i * size, (i + 1) * size));
   return {
     kind: 'supabase',
@@ -103,6 +103,7 @@ export function supabaseRepo({ url, key, fetcher = fetch }) {
     async updateOrder(tenantId, id, patch) { return (await rest('PATCH', `orders?tenant_id=${eq(tenantId)}&id=${eq(id)}`, { body: patch, prefer: 'return=representation' }))[0] || null; },
     async listOrders(tenantId, { customerId } = {}) { return rest('GET', `orders?select=*,customers(id,cnpj,legal_name,trade_name),app_users(id,name,username),order_items(id)&tenant_id=${eq(tenantId)}${customerId ? `&customer_id=${eq(customerId)}` : ''}&order=created_at.desc&limit=500`); },
     async getOrder(tenantId, id) { return (await rest('GET', `orders?select=*,customers(*),app_users(id,name,username),order_items(*)&tenant_id=${eq(tenantId)}&id=${eq(id)}&limit=1`))[0] || null; },
+    async listOrdersSince(tenantId, iso) { return rest('GET', `orders?select=id,number,total,status,created_at,customers(legal_name,trade_name)&tenant_id=${eq(tenantId)}&created_at=gt.${encodeURIComponent(iso)}&order=created_at.desc&limit=50`); },
     // Order files: metadata in the table, bytes in the private "order-files" Storage bucket.
     async listOrderFiles(tenantId, orderId) { return rest('GET', `order_files?select=id,kind,name,size,content_type,created_at&tenant_id=${eq(tenantId)}&order_id=${eq(orderId)}&order=created_at.asc`); },
     async getOrderFile(tenantId, orderId, id) { return UUID.test(id) ? (await rest('GET', `order_files?select=*&tenant_id=${eq(tenantId)}&order_id=${eq(orderId)}&id=${eq(id)}&limit=1`))[0] || null : null; },
@@ -186,6 +187,7 @@ export function memoryRepo(seed = {}) {
       const o = tables.orders.find(x => x.tenant_id === tenantId && x.id === id);
       return o ? { ...o, customers: tables.customers.find(c => c.id === o.customer_id), app_users: userOf(o.user_id), order_items: tables.order_items.filter(i => i.order_id === o.id) } : null;
     },
+    async listOrdersSince(tenantId, iso) { return tables.orders.filter(o => o.tenant_id === tenantId && o.created_at > iso).sort((a, b) => b.created_at.localeCompare(a.created_at)).map(o => ({ ...o, customers: customerOf(o.customer_id) })); },
     async listOrderFiles(tenantId, orderId) { return tables.order_files.filter(f => f.tenant_id === tenantId && f.order_id === orderId).map(({ storage_path, tenant_id, order_id, ...f }) => f); },
     async getOrderFile(tenantId, orderId, id) { return tables.order_files.find(f => f.tenant_id === tenantId && f.order_id === orderId && f.id === id) || null; },
     async addOrderFile(row) { const file = { id: uuid(), created_at: new Date().toISOString(), ...row }; tables.order_files.push(file); return file; },
