@@ -78,6 +78,10 @@ test('database login, roles, catalog, users, orders and Olist order creation', a
   const cached = (await call('/api/cache', { cookie: admin })).data;
   assert.equal(cached.storage, 'database');
   assert.equal(cached.catalog.products.length, 4);
+  // An early save (no stock/variations yet) keeps what the database already has.
+  assert.equal((await call('/api/cache', { method: 'PUT', cookie: admin, body: { catalog: { ...catalog, stock: [], children: [], grade: [], variationsDone: [] } } })).status, 200);
+  const kept = repo.tables.olist_products.find(p => p.id === 2);
+  assert.equal(kept.stock_available, 4); assert.equal(kept.parent_id, 1); assert.equal(kept.grade, 'Tamanho: 37');
   assert.deepEqual(cached.catalog.children, [[1, [2, 3]]]);
   assert.equal(tenant.catalog_synced_at, '2026-10-21 01:00:00');
 

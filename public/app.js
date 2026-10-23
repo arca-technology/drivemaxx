@@ -462,7 +462,8 @@ async function loadProducts() {
   } finally {
     if (generation === state.generation) {
       state.loading = false; $('refresh').disabled = !state.authenticated; $('refresh').classList.remove('spinning'); render();
-      if (state.complete) { state.syncedAt = importStartedAt; if (store.get('drive-auto-enrich', true)) runEnrichment(generation, true); else saveCache(); }
+      // Save right away so the catalog survives the page closing while stock/variations load; enrichment saves again when done.
+      if (state.complete) { state.syncedAt = importStartedAt; saveCache().finally(() => { if (generation === state.generation && store.get('drive-auto-enrich', true)) runEnrichment(generation, true); }); }
     }
   }
 }

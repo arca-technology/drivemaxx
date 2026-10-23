@@ -6,9 +6,11 @@ export function rowsFromCatalog(catalog, tenantId) {
   const now = new Date().toISOString();
   const parentOf = new Map(), stock = new Map(catalog.stock || []), grade = new Map(catalog.grade || []), done = new Set(catalog.variationsDone || []);
   for (const [pid, kids] of catalog.children || []) for (const kid of kids || []) parentOf.set(kid, pid);
+  // A save made before stock/variations load must not wipe what the database already has for them.
+  const hasStock = stock.size > 0, hasLinks = parentOf.size > 0 || grade.size > 0 || done.size > 0;
   return catalog.products.filter(p => Number.isSafeInteger(Number(p?.id))).map(p => {
     const s = stock.get(p.id);
-    return {
+    const row = {
       tenant_id: tenantId, id: Number(p.id), parent_id: parentOf.get(p.id) ?? null,
       sku: p.sku ?? null, description: String(p.descricao ?? ''), situation: p.situacao ?? null, type: p.tipo ?? null, variation_type: p.tipoVariacao ?? null,
       grade: grade.get(p.id) ?? null, unit: p.unidade ?? null, gtin: p.gtin ?? null,
@@ -17,6 +19,9 @@ export function rowsFromCatalog(catalog, tenantId) {
       stock_balance: num(s?.saldo), stock_reserved: num(s?.reservado), stock_available: num(s?.disponivel), stock_updated_at: s ? now : null,
       variations_loaded: done.has(p.id), in_catalog: true, synced_at: now
     };
+    if (!hasStock) ['stock_balance', 'stock_reserved', 'stock_available', 'stock_updated_at'].forEach(k => delete row[k]);
+    if (!hasLinks) ['parent_id', 'grade', 'variations_loaded'].forEach(k => delete row[k]);
+    return row;
   });
 }
 const imageOf = (row, byId) => row.image_url || (row.parent_id != null ? byId.get(Number(row.parent_id))?.image_url : null) || null;
