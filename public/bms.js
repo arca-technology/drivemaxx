@@ -50,7 +50,6 @@ async function initBuyer() {
 function afterRender() {
   const buyer = state.role === 'buyer';
   $('bag').hidden = !buyer;
-  $('xml-order').hidden = !buyer || !state.products.length;
   if (buyer) {
     const items = bagProducts();
     $('bag').disabled = !items.length;
@@ -685,12 +684,11 @@ function xmlTotal() {
   $('xml-total').textContent = money(total);
   $('xml-save').disabled = !xmlItems().some(i => i.quantity > 0);
 }
-$('xml-order').onclick = () => {
+$('orders-xml').onclick = () => {
   xmlOrder = null; xmlPdfs = []; $('xml-file').value = ''; $('xml-pdfs').value = ''; $('xml-notes').value = '';
   $('xml-file-label').textContent = 'Selecionar XML da NF-e'; xmlError(''); renderXmlOrder();
   openDrawer($('xml-dialog'));
 };
-$('orders-xml').onclick = () => $('xml-order').onclick();
 $('xml-form').addEventListener('submit', event => event.preventDefault());
 $('xml-file').addEventListener('change', async () => {
   const file = $('xml-file').files[0];
