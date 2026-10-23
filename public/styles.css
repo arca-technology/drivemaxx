@@ -332,3 +332,88 @@ html[data-theme=dark] .file-kind.pdf{background:#38211f;color:#ffb6a9}
 .muted-row td{opacity:.65}
 .settings-hint{display:block;margin-top:2px;color:var(--muted);font-size:10px;line-height:1.4}.settings-row>span{min-width:0}
 .toolbar-center #orders-xml{margin-left:8px;flex-shrink:0}
+
+/* ── Mobile (≤ 760px) ─────────────────────────────────────── */
+.ob-skip-mobile{display:none}
+@media(max-width:760px){
+  /* Header: brand + actions on top, modules as full-width tabs below */
+  .header{height:96px;grid-template-columns:1fr auto;grid-template-rows:52px 44px;grid-template-areas:"brand actions" "tabs tabs";gap:0 8px;padding:0 8px 0 12px}
+  .header .brand{grid-area:brand;max-width:none}
+  .header .brand>span:last-child{font-size:0;letter-spacing:0}
+  .header .brand>span:last-child strong{font-size:12px;letter-spacing:.4px}
+  .header .header-actions{grid-area:actions;gap:0}
+  .header .page-tabs{grid-area:tabs;height:44px;margin:0 -8px 0 -12px;border-top:1px solid var(--line)}
+  .header .page-tabs .page-tab{flex:1;justify-content:center;height:44px;padding:0 6px;font-size:10px;letter-spacing:.8px}
+  main{height:calc(100dvh - 96px)}
+  /* Toolbar: search on top, count + actions on one row */
+  .toolbar{gap:8px}
+  .toolbar-start{order:2;flex:1;min-width:0;flex-wrap:wrap}
+  .toolbar-end{order:3;width:auto;margin-left:auto}
+  .view-button,.toolbar-line,#export,#columns{display:none}
+  .filterbar:has(.filter-hint){display:none}
+  .table-footer{flex-wrap:wrap;justify-content:center;gap:6px 12px}
+  /* Products: one card per product */
+  #products-table{display:block;width:100%!important;min-width:0!important;table-layout:auto}
+  #products-table colgroup,#products-table thead{display:none}
+  #products-table tbody{display:block}
+  #products-table tr{display:grid;grid-template-columns:22px 52px minmax(0,1fr) minmax(0,1fr);column-gap:12px;row-gap:0;padding:12px 14px;border-bottom:1px solid var(--line);position:relative;background:var(--bg)}
+  #products-table tr.child-row{padding-left:28px;background:var(--surface)}
+  #products-table td{display:block;height:auto;min-width:0;padding:0;border:0!important;background:transparent!important;position:static!important;box-shadow:none!important;white-space:normal;overflow:visible;text-align:left}
+  #products-table td.select-col{grid-column:1;grid-row:1/span 12;padding-top:16px}
+  #products-table td.image-col{grid-column:2;grid-row:1/span 12}
+  #products-table td[data-key]:not(.product-col):not(.image-col){margin-top:8px}
+  #products-table td.product-col{grid-column:3/5;grid-row:1;padding-right:30px}
+  #products-table td.expand-col{position:absolute!important;top:10px;right:8px}
+  #products-table td.expand-col:empty{display:none}
+  #products-table td[data-key]::before{content:attr(data-label);display:block;margin-bottom:2px;color:var(--muted);font-size:9px;font-weight:700;letter-spacing:.3px}
+  #products-table td.product-col::before,#products-table td.image-col::before{content:none}
+  #products-table td:is([data-key=sku],[data-key=situacao],[data-key=unidade],[data-key=gtin],[data-key=tipo],[data-key=tipoVariacao],[data-key=localizacao],[data-key=dataAlteracao],[data-key=id],[data-key=saldo],[data-key=reservado],[data-key=preco],[data-key=precoPromocional],[data-key=precoCusto]){display:none}
+  #products-table td b{font-size:13px}
+  #products-table .thumb{width:52px;height:52px}
+  #products-table .product-name{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:12px;line-height:16px}
+  #products-table .margin-input{width:100%;max-width:140px;height:32px}
+  #products-table .toggle{margin-top:2px}
+  /* Buyer: the bag floats at the bottom once something is selected */
+  body.role-buyer #bag:not([disabled]){position:fixed;left:12px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom));z-index:30;height:48px;justify-content:center;font-size:13px;background:var(--blue);border-color:var(--blue);color:#fff;box-shadow:0 8px 24px #2563eb55}
+  body.role-buyer #bag:not([disabled]) b{background:#fff3;color:#fff}
+  body.role-buyer:has(#bag:not([disabled])) #view-products .table-footer{margin-bottom:72px}
+  /* Orders and users: cards */
+  .module-table{display:block;width:100%;min-width:0!important}
+  .module-table thead{display:none}
+  .module-table tbody{display:block}
+  .module-table tr{display:grid;grid-template-columns:1fr 1fr;gap:8px 12px;padding:12px 14px;border-bottom:1px solid var(--line)}
+  .module-table td{display:block;height:auto;min-width:0;padding:0;border:0!important;background:transparent!important;white-space:normal;text-align:left!important;overflow:visible}
+  .module-table td[data-label]::before{content:attr(data-label);display:block;margin-bottom:2px;color:var(--muted);font-size:9px;font-weight:700;letter-spacing:.3px}
+  .module-table td:last-child{grid-column:1/-1;display:flex;gap:6px;justify-content:flex-end}
+  .module-table td:last-child::before{content:none}
+  /* Tables inside panels (bag, XML order, order items) */
+  .bag-table,.bag-table tbody{display:block}
+  .bag-table thead{display:none}
+  .bag-table tr{display:grid;grid-template-columns:repeat(auto-fit,minmax(72px,1fr));gap:6px 10px;padding:10px 14px;border-bottom:1px solid var(--line)}
+  .bag-table td{display:block;height:auto;padding:0;border:0!important;text-align:left!important}
+  .bag-table td:first-child,#xml-table td:nth-child(2){grid-column:1/-1}
+  .bag-table td[data-label]:not(:first-child)::before{content:attr(data-label);display:block;margin-bottom:2px;color:var(--muted);font-size:9px;font-weight:700;letter-spacing:.3px}
+  #xml-table td:nth-child(2)::before{content:none}
+  .qty-input{width:100%;height:34px}
+  .modal-foot{flex-wrap:wrap}
+  .modal-foot .bag-total{flex-basis:100%}
+  .order-meta{padding:12px 14px}
+  /* Product detail: one scrolling column */
+  .pd{overflow-y:auto}
+  .pd>*{flex-shrink:0}
+  .pd-head{position:sticky;top:0;z-index:2;flex-wrap:wrap;gap:8px;min-height:0;padding:10px 12px;background:var(--bg)}
+  .pd-thumbs .empty{display:none}
+  .pd-heading{flex:1 1 100%}
+  .pd-heading h2{white-space:normal;font-size:14px;line-height:1.3}
+  .pd-actions{width:100%;justify-content:flex-end}
+  .pd-btn{height:36px;min-width:36px}
+  .pd-grid{flex:none;overflow:visible;padding:12px}
+  .pd-card{overflow:visible;min-height:0}
+  .pd-pane{overflow:visible}
+  .pd-grid>.pd-card:last-child{min-height:0}
+  .pd-main{height:260px}
+  .pd-foot span,.pd-foot{font-size:9px}
+  /* Onboarding: skip button in the footer (the side rail is hidden) */
+  .ob-skip-mobile{display:inline;margin-right:auto}
+}
+@media(max-width:760px){#products-table td[data-key]::before,.module-table td[data-label]::before,.bag-table td[data-label]::before{font-family:Inter,"Segoe UI",Arial,sans-serif}}

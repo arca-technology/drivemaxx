@@ -558,7 +558,7 @@ $('ob-profile').addEventListener('submit', event => { event.preventDefault(); ob
 $('ob-keys').addEventListener('submit', event => { event.preventDefault(); obNext(); });
 $('ob-olist-yes').onclick = () => { obOlistChoice = 'yes'; obShow('guide'); };
 $('ob-olist-later').onclick = () => { obOlistChoice = 'later'; obShow('done'); };
-$('ob-skip').onclick = () => closeDrawer($('onboarding-dialog'));
+$('ob-skip').onclick = $('ob-skip-mobile').onclick = () => closeDrawer($('onboarding-dialog'));
 $('onboarding-dialog').addEventListener('close', () => { finishOnboarding(); });
 document.querySelectorAll('#onboarding-dialog [data-copy]').forEach(button => {
   button.onclick = async () => {
@@ -806,3 +806,11 @@ $('push-toggle').onclick = async () => {
   } catch (error) { $('push-hint').textContent = error.message; }
   finally { button.disabled = false; }
 };
+
+
+// ── Mobile: tables become cards; each cell carries its column name as a label ──
+function labelRows(tbody) {
+  const heads = [...tbody.closest('table').querySelectorAll('thead th')].map(th => th.textContent.trim());
+  tbody.querySelectorAll(':scope > tr').forEach(tr => [...tr.children].forEach((td, i) => { if (heads[i]) td.dataset.label = heads[i]; else delete td.dataset.label; }));
+}
+document.querySelectorAll('.module-table tbody, .bag-table tbody').forEach(tbody => new MutationObserver(() => labelRows(tbody)).observe(tbody, { childList: true }));

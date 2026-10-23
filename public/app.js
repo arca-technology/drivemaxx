@@ -221,7 +221,7 @@ function rowHtml(p, cols, kind, group) {
   let expand = '';
   if (kind === 'parent') { const open = state.expanded.has(p.id); expand = `<button class="expand-btn" type="button" data-expand="${p.id}" aria-expanded="${open}" aria-label="${open ? 'Recolher' : 'Expandir'} variações">${open ? '▾' : '▸'}</button>`; }
   else if (kind === 'parent-empty') expand = `<span class="expand-count" title="Variações ocultas pelo filtro">${group.total}</span>`;
-  return `<tr class="${kind === 'child' ? 'child-row' : kind.startsWith('parent') ? 'parent-row' : ''}" data-id="${p.id}"${kind === 'child' ? ` data-parent="${state.parentOf.get(p.id)}"` : ''}><td class="select-col"><input type="checkbox" data-select="${p.id}" aria-label="Selecionar ${escape(p.descricao)}"${checked}></td><td class="expand-col">${expand}</td>${cols.map(c => `<td class="${colClass(c)}${c.mono ? 'mono' : ''}"${c.fixed ? ` title="${escape(p.descricao)}"` : ''}>${c.render ? c.render(p) : escape(c.value(p) || '—')}</td>`).join('')}</tr>`;
+  return `<tr class="${kind === 'child' ? 'child-row' : kind.startsWith('parent') ? 'parent-row' : ''}" data-id="${p.id}"${kind === 'child' ? ` data-parent="${state.parentOf.get(p.id)}"` : ''}><td class="select-col"><input type="checkbox" data-select="${p.id}" aria-label="Selecionar ${escape(p.descricao)}"${checked}></td><td class="expand-col">${expand}</td>${cols.map(c => `<td class="${colClass(c)}${c.mono ? 'mono' : ''}" data-key="${c.key}" data-label="${escape(c.label)}"${c.fixed ? ` title="${escape(p.descricao)}"` : ''}>${c.render ? c.render(p) : escape(c.value(p) || '—')}</td>`).join('')}</tr>`;
 }
 function render() {
   view = buildView();
