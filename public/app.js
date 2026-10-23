@@ -27,7 +27,8 @@ const paths = {
   columns: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16M15 4v16"/>',
   bag: '<path d="M5 8h14l-1 13H6L5 8Z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/>',
   users: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20v-1.5a6.5 6.5 0 0 1 13 0V20M16 4.5a3.5 3.5 0 0 1 0 7M18 14a6.5 6.5 0 0 1 3.5 5.8V20"/>',
-  plus: '<path d="M12 5v14M5 12h14"/>'
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  file: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5Z"/><path d="M14 3v5h5M9 13h6M9 17h6"/>'
 };
 const icon = name => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || paths.box}</svg>`;
 document.querySelectorAll('[data-icon]').forEach(el => { el.innerHTML = icon(el.dataset.icon); });
@@ -38,7 +39,7 @@ const state = {
   filters: {}, selected: new Set(), expanded: new Set(), hierarchy: new Set(['parent', 'variations']),
   stock: new Map(), children: new Map(), parentOf: new Map(), grade: new Map(), variationsDone: new Set(), stockDone: new Set(),
   visibleIds: [], enriching: false, enrichNote: '',
-  role: 'admin', database: false, settings: new Map(), defaultMargin: 0
+  role: 'admin', database: false, settings: new Map(), defaultMargin: 0, defaultFixed: 0
 };
 const money = value => value == null || value === '' ? '—' : new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(value));
 const escape = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
@@ -61,13 +62,20 @@ function stockOf(p, field = 'disponivel') {
 }
 
 // ── Buyer price (cost + margin) and admin product settings ───
-const settingOf = p => state.settings.get(p.id) || { visible: true, margin: null };
+const settingOf = p => state.settings.get(p.id) || { visible: true, margin: null, fixed: null };
+const fixedOf = p => Number(settingOf(p).fixed ?? state.defaultFixed ?? 0);
 function buyerPriceOf(p) {
-  if (state.role === 'buyer') return p.precoComprador ?? null;
+  if (state.role === 'buyer') return null;
   const cost = Number(p.precos?.precoCusto) > 0 ? Number(p.precos.precoCusto) : Number(p.precos?.precoCustoMedio) > 0 ? Number(p.precos.precoCustoMedio) : Number(p.custoFicha) > 0 ? Number(p.custoFicha) : null;
   if (cost == null) return null;
   const margin = settingOf(p).margin ?? state.defaultMargin;
   return Math.round(cost * (1 + Number(margin) / 100) * 100) / 100;
+}
+// Final price (what the buyer sees and pays): buyer price + fixed cost (R$).
+function priceOf(p) {
+  if (state.role === 'buyer') return p.precoFinal ?? null;
+  const base = buyerPriceOf(p);
+  return base == null ? null : Math.round((base + fixedOf(p)) * 100) / 100;
 }
 
 // ── Columns ──────────────────────────────────────────────────
@@ -85,9 +93,11 @@ const COLUMNS = [
   { key: 'sku', label: 'CÓDIGO / SKU', width: 160, mono: true, value: p => p.sku || '' },
   { key: 'situacao', roles: ['admin'], label: 'SITUAÇÃO', width: 120, value: p => SITUATION[p.situacao] || 'Não informado', render: p => `<span class="status-pill ${p.situacao === 'E' ? 'deleted' : p.situacao !== 'A' ? 'inactive' : ''}"><i></i>${SITUATION[p.situacao] || 'Não informado'}</span>` },
   { key: 'disponivel', label: 'ESTOQUE DISPONÍVEL', width: 150, numeric: true, value: p => stockOf(p), render: p => { const v = stockOf(p), kids = kidsOf(p.id); const done = kids.length ? kids.every(k => state.stockDone.has(k)) : state.stockDone.has(p.id); return v == null ? `<span class="pending" title="${done ? 'Sem estoque informado' : 'Carregando estoque'}">${done ? '—' : '···'}</span>` : `<b class="${v <= 0 ? 'stock-out' : ''}">${qty(v)}</b>`; } },
-  { key: 'precoComprador', label: 'PREÇO COMPRADOR', width: 150, numeric: true, database: true, value: p => buyerPriceOf(p), render: p => { const v = buyerPriceOf(p); return v == null ? '<span class="pending" title="Sem custo cadastrado na Olist">—</span>' : `<b>${money(v)}</b>`; } },
+  { key: 'precoComprador', label: 'PREÇO COMPRADOR', width: 150, numeric: true, roles: ['admin'], database: true, value: p => buyerPriceOf(p), render: p => { const v = buyerPriceOf(p); return v == null ? '<span class="pending" title="Sem custo cadastrado na Olist">—</span>' : `<b>${money(v)}</b>`; } },
   { key: 'visivel', label: 'VISÍVEL', width: 90, roles: ['admin'], database: true, pinRight: true, value: p => settingOf(p).visible ? 'Sim' : 'Não', render: p => { const on = settingOf(p).visible; return `<button class="toggle${on ? ' on' : ''}" type="button" role="switch" aria-checked="${on}" data-visible="${p.id}" title="${on ? 'Visível para compradores' : 'Oculto para compradores'}"><i></i></button>`; } },
   { key: 'margem', label: 'MARGEM %', width: 120, numeric: true, roles: ['admin'], database: true, value: p => settingOf(p).margin, render: p => { const m = settingOf(p).margin; return `<input class="margin-input" type="number" step="0.01" data-margin="${p.id}" value="${m ?? ''}" placeholder="${escape(String(state.defaultMargin))}" aria-label="Margem de ${escape(p.descricao)}">`; } },
+  { key: 'custoFixo', label: 'CUSTO FIXO R$', width: 130, numeric: true, roles: ['admin'], database: true, value: p => settingOf(p).fixed, render: p => { const f = settingOf(p).fixed; return `<input class="margin-input" type="number" step="0.01" min="0" data-fixed="${p.id}" value="${f ?? ''}" placeholder="${escape(String(state.defaultFixed))}" aria-label="Custo fixo de ${escape(p.descricao)}">`; } },
+  { key: 'precoFinal', label: 'PREÇO', width: 140, numeric: true, database: true, value: p => priceOf(p), render: p => { const v = priceOf(p); return v == null ? '<span class="pending" title="Sem custo cadastrado na Olist">—</span>' : `<b>${money(v)}</b>`; } },
   { key: 'saldo', roles: ['admin'], label: 'SALDO EM ESTOQUE', width: 140, numeric: true, hidden: true, value: p => stockOf(p, 'saldo'), render: p => qty(stockOf(p, 'saldo')) },
   { key: 'reservado', roles: ['admin'], label: 'RESERVADO', width: 120, numeric: true, hidden: true, value: p => stockOf(p, 'reservado'), render: p => qty(stockOf(p, 'reservado')) },
   { key: 'preco', roles: ['admin'], label: 'PREÇO DE VENDA', width: 145, numeric: true, value: p => p.precos?.preco ?? null, render: p => money(p.precos?.preco) },
@@ -579,6 +589,7 @@ function hydrate(c) {
   state.total = state.products.length; state.complete = true; state.syncedAt = c.syncedAt || null;
   state.settings = new Map(c.settings || []);
   if (c.defaultMargin != null) state.defaultMargin = Number(c.defaultMargin) || 0;
+  if (c.defaultFixedCost != null) state.defaultFixed = Number(c.defaultFixedCost) || 0;
 }
 function removeProduct(id) {
   state.byId.delete(id); state.products = state.products.filter(p => p.id !== id);
@@ -751,7 +762,7 @@ async function init() {
   }
   try {
     const me = await api('/api/me');
-    state.role = me.role || 'admin'; state.database = !!me.database; state.defaultMargin = Number(me.tenant?.defaultMargin || 0);
+    state.role = me.role || 'admin'; state.database = !!me.database; state.defaultMargin = Number(me.tenant?.defaultMargin || 0); state.defaultFixed = Number(me.tenant?.defaultFixedCost || 0);
     if (typeof applyRole === 'function') applyRole(me);
     $('app-user').textContent = me.name || me.user || '—';
     $('app-logout').hidden = $('settings-logout').hidden = !me.gate;

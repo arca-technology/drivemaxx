@@ -8,6 +8,7 @@ import { cookieSessions } from './session.mjs';
 import { createStorage } from './storage.mjs';
 import { supabaseRepo, memoryRepo, verifyPassword, sealer } from './db.mjs';
 import { bmsRoutes, catalogFromRows, rowsFromCatalog } from './bms.mjs';
+import { pushService } from './push.mjs';
 
 const root = dirname(fileURLToPath(import.meta.url));
 const AUTH = 'https://accounts.tiny.com.br/realms/tiny/protocol/openid-connect/auth';
@@ -16,7 +17,7 @@ const API = 'https://erp.tiny.com.br/public-api/v3';
 const id = () => randomBytes(32).toString('base64url');
 const fault = (status, message, extra = {}) => Object.assign(new Error(message), { status, ...extra });
 // Routes a buyer may use; everything else is admin-only.
-const BUYER_ROUTES = [/^\/api\/customer\/olist(-app)?$/, /^\/auth\/customer-login$/, /^\/auth\/callback$/, /^\/api\/me$/, /^\/api\/catalog$/, /^\/api\/products\/\d+\/detail$/, /^\/api\/orders(\/[\w-]+)?$/, /^\/auth\/app-logout$/];
+const BUYER_ROUTES = [/^\/api\/customer\/olist(-app)?$/, /^\/auth\/customer-login$/, /^\/auth\/callback$/, /^\/api\/me$/, /^\/api\/catalog$/, /^\/api\/products\/\d+\/detail$/, /^\/api\/orders(\/[\w-]+)?$/, /^\/api\/orders\/[\w-]+\/files(\/[\w-]+)?$/, /^\/auth\/app-logout$/];
 
 export function createApp(config, fetcher = fetch) {
   const localSessions = new Map();
@@ -163,7 +164,8 @@ export function createApp(config, fetcher = fetch) {
     }
     return { items };
   }
-  const bms = repo ? bmsRoutes({ repo, send, readJson, fault, olist, tenantSession, fetcher: config.registryFetcher || fetcher, origin }) : null;
+  const push = repo ? pushService({ repo, box: tokenBox, subject: origin.startsWith('https:') ? origin : 'mailto:suporte@enterpriser.com.br' }) : { notifyAdmins: async () => 0 };
+  const bms = repo ? bmsRoutes({ repo, send, readJson, readRaw, fault, olist, tenantSession, fetcher: config.registryFetcher || fetcher, origin, notify: (tenantId, message) => push.notifyAdmins(tenantId, message) }) : null;
   return http.createServer(async (req, res) => {
     if (req.headers['x-vercel-oidc-token']) oidcToken = req.headers['x-vercel-oidc-token'];
     const sessions = config.serverless ? cookieSessions(req, res, config.sessionSecret, secure) : localSessions;
@@ -252,7 +254,7 @@ export function createApp(config, fetcher = fetch) {
         res.setHeader('Set-Cookie', appCookie('', 0));
         return send(res, 200, { ok: true });
       }
-      const pages = { '/': ['public/index.html', 'text/html'], '/app.js': ['public/app.js', 'text/javascript'], '/bms.js': ['public/bms.js', 'text/javascript'], '/login.js': ['public/login.js', 'text/javascript'], '/styles.css': ['public/styles.css', 'text/css'], '/favicon.svg': ['public/favicon.svg', 'image/svg+xml'] };
+      const pages = { '/': ['public/index.html', 'text/html'], '/app.js': ['public/app.js', 'text/javascript'], '/bms.js': ['public/bms.js', 'text/javascript'], '/login.js': ['public/login.js', 'text/javascript'], '/styles.css': ['public/styles.css', 'text/css'], '/favicon.svg': ['public/favicon.svg', 'image/svg+xml'], '/manifest.webmanifest': ['public/manifest.webmanifest', 'application/manifest+json'], '/sw.js': ['public/sw.js', 'text/javascript'], '/icon-192.png': ['public/icon-192.png', 'image/png'], '/icon-512.png': ['public/icon-512.png', 'image/png'], '/icon-maskable-512.png': ['public/icon-maskable-512.png', 'image/png'], '/apple-touch-icon.png': ['public/apple-touch-icon.png', 'image/png'], '/icon-badge.png': ['public/icon-badge.png', 'image/png'] };
       const who = await whoAmI(req);
       if (!who) {
         if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '/login')) {
@@ -267,7 +269,7 @@ export function createApp(config, fetcher = fetch) {
         const customer = repo && who.customerId ? await repo.getCustomer(who.tenantId, who.customerId) : null;
         return send(res, 200, {
           user: who.username, name: who.name, email: me?.email || null, role: who.role, gate, database: !!repo, onboarded: !repo || !!me?.onboarded_at, redirectUri: config.redirectUri,
-          tenant: tenant ? { name: tenant.name, defaultMargin: Number(tenant.default_margin || 0), webhook: !!tenant.webhook_token, ...(who.role === 'admin' && tenant.webhook_token ? { webhookUrl: `${origin}/api/webhooks/estoque?token=${encodeURIComponent(tenant.webhook_token)}` } : {}) } : null,
+          tenant: tenant ? { name: tenant.name, defaultMargin: Number(tenant.default_margin || 0), defaultFixedCost: Number(tenant.default_fixed_cost || 0), webhook: !!tenant.webhook_token, ...(who.role === 'admin' && tenant.webhook_token ? { webhookUrl: `${origin}/api/webhooks/estoque?token=${encodeURIComponent(tenant.webhook_token)}` } : {}) } : null,
           customer: customer ? { cnpj: customer.cnpj, legalName: customer.legal_name, tradeName: customer.trade_name, email: customer.email, phone: customer.phone, address: customer.address, olist: { configured: !!customer.olist_app, connected: !!customer.olist_tokens, company: customer.olist_company || null, connectedAt: customer.olist_connected_at || null } } : null
         });
       }
@@ -284,6 +286,23 @@ export function createApp(config, fetcher = fetch) {
         if (Object.keys(userPatch).length) { await repo.updateUser(who.tenantId, who.id, userPatch); userCache.delete(who.id); }
         if (who.customerId && (body.phone !== undefined || body.customerEmail !== undefined)) await repo.updateCustomer(who.tenantId, who.customerId, { ...(body.phone !== undefined ? { phone: clean(body.phone, 40) } : {}), ...(body.customerEmail !== undefined ? { email: clean(body.customerEmail, 160) } : {}) });
         return send(res, 200, { ok: true });
+      }
+      // Installed app notifications (admin devices).
+      if (url.pathname === '/api/push' && repo && who.tenantId) {
+        if (who.role !== 'admin') throw fault(403, 'Acesso restrito ao administrador.');
+        if (req.method === 'GET') return send(res, 200, { publicKey: await push.publicKey(), devices: await repo.countPushSubscriptions(who.id) });
+        if (req.headers.origin && req.headers.origin !== origin) throw fault(403, 'Origem inválida.');
+        const body = await readJson(req, 8192);
+        const endpoint = String(body.endpoint || '');
+        if (!/^https:\/\/[^\s]{10,900}$/.test(endpoint)) throw fault(400, 'Assinatura inválida.');
+        if (req.method === 'DELETE') { await repo.deletePushSubscription(endpoint); return send(res, 200, { ok: true }); }
+        if (req.method === 'POST') {
+          const p256dh = String(body.keys?.p256dh || ''), auth = String(body.keys?.auth || '');
+          if (!/^[\w-]{20,200}$/.test(p256dh) || !/^[\w-]{8,100}$/.test(auth)) throw fault(400, 'Assinatura inválida.');
+          await repo.savePushSubscription({ tenant_id: who.tenantId, user_id: who.id, endpoint, p256dh, auth, user_agent: String(req.headers['user-agent'] || '').slice(0, 300) });
+          if (body.test) await push.notifyAdmins(who.tenantId, { title: 'Notificações ativadas', body: 'Você vai receber um aviso a cada novo pedido.', url: '/?view=orders', tag: 'push-test' });
+          return send(res, 200, { ok: true });
+        }
       }
       // Customer's own Olist integration (buyers): private app credentials, OAuth and status.
       if (url.pathname === '/api/customer/olist-app' && req.method === 'PUT' && repo && who.customerId) {

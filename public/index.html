@@ -4,7 +4,7 @@
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="description" content="Catálogo de produtos Olist — ENTERPRISER • DRIVE MAXX">
   <title>Produtos · ENTERPRISER • DRIVE MAXX</title>
-  <link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="/styles.css"><script src="/app.js" defer></script><script src="/bms.js" defer></script>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="manifest" href="/manifest.webmanifest"><meta name="theme-color" content="#24354d"><link rel="apple-touch-icon" href="/apple-touch-icon.png"><link rel="stylesheet" href="/styles.css"><script src="/app.js" defer></script><script src="/bms.js" defer></script>
 </head>
 <body>
   <header class="header">
@@ -38,6 +38,7 @@
         <button class="view-button active" type="button" title="Visualização em tabela" aria-pressed="true"><span data-icon="table"></span> TABELA</button>
         <span class="toolbar-line"></span>
         <button id="refresh" class="icon-button bordered" title="Importar produtos novamente" aria-label="Importar produtos novamente" disabled data-icon="refresh"></button>
+        <button id="xml-order" class="button" type="button" hidden title="Criar pedido a partir do XML de uma NF-e"><span data-icon="file"></span> Pedido por XML</button>
         <button id="bag" class="button bag-button" type="button" hidden disabled><span data-icon="bag"></span> Sacola <b id="bag-count">0</b></button>
         <button id="export" class="button export-button" disabled><span data-icon="download"></span> Exportar <span class="csv-label">CSV</span></button>
       </div>
@@ -118,11 +119,33 @@
     </form>
   </dialog>
 
+  <dialog id="xml-dialog" class="drawer modal" aria-labelledby="xml-title">
+    <form method="dialog" class="modal-body" id="xml-form">
+      <div class="modal-head"><h2 id="xml-title"><span data-icon="file"></span> Pedido por XML</h2><button class="icon-button drawer-close" type="button" aria-label="Fechar" data-icon="close"></button></div>
+      <div class="modal-scroll">
+        <div class="xml-pick">
+          <label class="button primary file-button"><input id="xml-file" type="file" accept=".xml,application/xml,text/xml" hidden><span data-icon="file"></span> <span id="xml-file-label">Selecionar XML da NF-e</span></label>
+          <p class="xml-hint">Os itens da nota são localizados no catálogo pelo código (SKU) ou pelo GTIN/EAN. Você confere as quantidades antes de salvar.</p>
+        </div>
+        <div id="xml-summary" class="order-meta" hidden></div>
+        <table class="bag-table" id="xml-table" hidden><thead><tr><th>ITEM DA NOTA</th><th>PRODUTO NO CATÁLOGO</th><th class="numeric">PREÇO</th><th class="numeric">QUANTIDADE</th><th class="numeric">TOTAL</th></tr></thead><tbody id="xml-rows"></tbody></table>
+        <div class="xml-attach" id="xml-attach" hidden>
+          <div class="xml-attach-head"><b>Anexos em PDF</b><label class="integration-action file-button"><input id="xml-pdfs" type="file" accept="application/pdf,.pdf" multiple hidden>ADICIONAR PDF</label></div>
+          <ul id="xml-pdf-list" class="file-list"></ul>
+          <p class="xml-hint">Até 4 MB por arquivo. O XML da nota também fica anexado ao pedido.</p>
+        </div>
+        <label class="field" id="xml-notes-field" hidden><span>Observações</span><textarea id="xml-notes" rows="2" maxlength="1000" placeholder="Opcional"></textarea></label>
+      </div>
+      <p id="xml-error" class="form-error" role="alert" hidden></p>
+      <div class="modal-foot"><span class="bag-total">Total <b id="xml-total">R$ 0,00</b></span><button class="button" value="cancel">Cancelar</button><button id="xml-save" class="button primary" type="button" disabled>Criar pedido</button></div>
+    </form>
+  </dialog>
+
   <dialog id="order-dialog" class="drawer modal" aria-labelledby="order-title">
     <form method="dialog" class="modal-body">
       <div class="modal-head"><h2 id="order-title">Pedido</h2><button class="icon-button drawer-close" type="button" aria-label="Fechar" data-icon="close"></button></div>
       <div id="order-meta" class="order-meta"></div>
-      <div class="modal-scroll"><table class="bag-table"><thead><tr><th>PRODUTO</th><th>SKU</th><th class="numeric">QTD.</th><th class="numeric">PREÇO</th><th class="numeric">TOTAL</th></tr></thead><tbody id="order-items"></tbody></table></div>
+      <div class="modal-scroll"><table class="bag-table"><thead><tr><th>PRODUTO</th><th>SKU</th><th class="numeric">QTD.</th><th class="numeric">PREÇO</th><th class="numeric">TOTAL</th></tr></thead><tbody id="order-items"></tbody></table><div id="order-files" class="xml-attach" hidden></div></div>
       <div class="modal-foot"><span class="bag-total">Total <b id="order-total">R$ 0,00</b></span><button id="order-resend" class="button" type="button" hidden>Reenviar para a Olist</button><button class="button" value="cancel">Fechar</button></div>
     </form>
   </dialog>
@@ -198,7 +221,7 @@
             <h1>Tudo o que você precisa para comprar</h1>
             <div class="ob-cards" data-role="admin">
               <article><span data-icon="box"></span><b>Produtos</b><p>Importa o catálogo ativo da sua Olist com estoque, variações, fotos e custos. Clique em um produto para ver os detalhes completos.</p></article>
-              <article><span data-icon="filter"></span><b>Visibilidade e margem</b><p>Escolha quais produtos os compradores veem e a margem de cada um. O preço do comprador é o custo acrescido da margem.</p></article>
+              <article><span data-icon="filter"></span><b>Visibilidade e margem</b><p>Escolha quais produtos os compradores veem e a margem de cada um. O preço é o custo acrescido da margem e do custo fixo.</p></article>
               <article><span data-icon="bag"></span><b>Pedidos</b><p>Os pedidos dos compradores chegam aqui e são criados automaticamente na sua Olist. Se a Olist recusar, você pode reenviar.</p></article>
               <article><span data-icon="users"></span><b>Usuários</b><p>Cadastre compradores pelo CNPJ (os dados da empresa vêm automaticamente) e defina a senha inicial de cada um.</p></article>
             </div>
@@ -318,8 +341,9 @@
         <div class="settings-row"><span>Tema</span><div class="segmented" role="group" aria-label="Tema"><button type="button" data-theme-option="light">Claro</button><button type="button" data-theme-option="dark">Escuro</button></div></div>
       </section>
       <section class="settings-group" data-admin-only data-database-only hidden>
-        <h3>Preço do comprador</h3>
+        <h3>Preço</h3>
         <label class="settings-row"><span>Margem padrão sobre o custo (%)</span><input id="default-margin" class="settings-number" type="number" step="0.01" min="-100"></label>
+        <label class="settings-row"><span>Custo fixo padrão (R$)</span><input id="default-fixed" class="settings-number" type="number" step="0.01" min="0"></label>
       </section>
       <section class="settings-group">
         <h3>Tabela</h3>
@@ -331,6 +355,11 @@
       <section class="settings-group" id="settings-integrations-group">
         <h3>Integrações</h3>
         <div class="settings-row"><span>Olist ERP</span><button id="settings-integrations" class="integration-action" type="button">ABRIR</button></div>
+      </section>
+      <section class="settings-group" id="settings-app">
+        <h3>Aplicativo</h3>
+        <div class="settings-row"><span>Instalar no computador ou celular<small id="install-hint" class="settings-hint"></small></span><button id="install-app" class="integration-action" type="button">INSTALAR</button></div>
+        <div class="settings-row" id="push-row" hidden><span>Notificações de novos pedidos<small id="push-hint" class="settings-hint"></small></span><button id="push-toggle" class="integration-action" type="button">ATIVAR</button></div>
       </section>
       <section class="settings-group" id="settings-help" hidden>
         <h3>Ajuda</h3>

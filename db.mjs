@@ -40,7 +40,7 @@ export function sealer(secret) {
 // ── Supabase PostgREST repository ────────────────────────────
 // Server-only: uses the project secret key, which bypasses RLS. Never sent to the browser.
 export function supabaseRepo({ url, key, fetcher = fetch }) {
-  const base = `${url.replace(/\/$/, '')}/rest/v1`;
+  const base = `${url.replace(/\/$/, '')}/rest/v1`, storage = `${url.replace(/\/$/, '')}/storage/v1`;
   const auth = { apikey: key, ...(key.startsWith('eyJ') ? { Authorization: `Bearer ${key}` } : {}) };
   async function rest(method, path, { body, prefer } = {}) {
     let response;
@@ -102,14 +102,35 @@ export function supabaseRepo({ url, key, fetcher = fetch }) {
     },
     async updateOrder(tenantId, id, patch) { return (await rest('PATCH', `orders?tenant_id=${eq(tenantId)}&id=${eq(id)}`, { body: patch, prefer: 'return=representation' }))[0] || null; },
     async listOrders(tenantId, { customerId } = {}) { return rest('GET', `orders?select=*,customers(id,cnpj,legal_name,trade_name),app_users(id,name,username),order_items(id)&tenant_id=${eq(tenantId)}${customerId ? `&customer_id=${eq(customerId)}` : ''}&order=created_at.desc&limit=500`); },
-    async getOrder(tenantId, id) { return (await rest('GET', `orders?select=*,customers(*),app_users(id,name,username),order_items(*)&tenant_id=${eq(tenantId)}&id=${eq(id)}&limit=1`))[0] || null; }
+    async getOrder(tenantId, id) { return (await rest('GET', `orders?select=*,customers(*),app_users(id,name,username),order_items(*)&tenant_id=${eq(tenantId)}&id=${eq(id)}&limit=1`))[0] || null; },
+    // Order files: metadata in the table, bytes in the private "order-files" Storage bucket.
+    async listOrderFiles(tenantId, orderId) { return rest('GET', `order_files?select=id,kind,name,size,content_type,created_at&tenant_id=${eq(tenantId)}&order_id=${eq(orderId)}&order=created_at.asc`); },
+    async getOrderFile(tenantId, orderId, id) { return UUID.test(id) ? (await rest('GET', `order_files?select=*&tenant_id=${eq(tenantId)}&order_id=${eq(orderId)}&id=${eq(id)}&limit=1`))[0] || null : null; },
+    async addOrderFile(row) { return (await rest('POST', 'order_files', { body: row, prefer: 'return=representation' }))[0]; },
+    async putObject(path, data, contentType) {
+      const response = await fetcher(`${storage}/object/order-files/${path}`, { method: 'POST', headers: { ...auth, 'Content-Type': contentType, 'x-upsert': 'false' }, body: data, signal: AbortSignal.timeout(30000) }).catch(() => null);
+      if (!response?.ok) { console.error('[storage] put', response?.status, (await response?.text().catch(() => ''))?.slice(0, 300)); throw Object.assign(new Error('Não foi possível guardar o arquivo.'), { status: 502 }); }
+    },
+    async getObject(path) {
+      const response = await fetcher(`${storage}/object/order-files/${path}`, { headers: auth, signal: AbortSignal.timeout(30000) }).catch(() => null);
+      if (!response?.ok) { console.error('[storage] get', response?.status); throw Object.assign(new Error('Arquivo indisponível.'), { status: 502 }); }
+      return Buffer.from(await response.arrayBuffer());
+    },
+    // Web push subscriptions and sealed server secrets.
+    async savePushSubscription(row) { await rest('POST', 'push_subscriptions?on_conflict=endpoint', { body: row, prefer: 'return=minimal,resolution=merge-duplicates' }); },
+    async deletePushSubscription(endpoint) { await rest('DELETE', `push_subscriptions?endpoint=${eq(endpoint)}`, { prefer: 'return=minimal' }); },
+    async listAdminPushSubscriptions(tenantId) { return rest('GET', `push_subscriptions?select=endpoint,p256dh,auth,app_users!inner(role,active)&tenant_id=${eq(tenantId)}&app_users.role=eq.admin&app_users.active=is.true`); },
+    async countPushSubscriptions(userId) { return (await rest('GET', `push_subscriptions?select=id&user_id=${eq(userId)}`)).length; },
+    async getSecret(key) { return (await rest('GET', `app_secrets?select=value&key=${eq(key)}&limit=1`))[0]?.value || null; },
+    async putSecret(key, value) { await rest('POST', 'app_secrets?on_conflict=key', { body: { key, value }, prefer: 'return=minimal,resolution=ignore-duplicates' }); }
   };
 }
 
 // ── In-memory repository (tests and local development) ───────
 export function memoryRepo(seed = {}) {
   const uuid = () => crypto.randomUUID();
-  const tables = { tenants: [...(seed.tenants || [])], customers: [], app_users: [...(seed.users || [])], olist_products: [], orders: [], order_items: [] };
+  const tables = { tenants: [...(seed.tenants || [])], customers: [], app_users: [...(seed.users || [])], olist_products: [], orders: [], order_items: [], order_files: [], push_subscriptions: [], app_secrets: [] };
+  const objects = new Map();
   let orderNumber = 1000, itemId = 1;
   const strip = ({ password_hash, ...rest }) => rest;
   const customerOf = id => { const c = tables.customers.find(x => x.id === id); return c ? { id: c.id, cnpj: c.cnpj, legal_name: c.legal_name, trade_name: c.trade_name } : null; };
@@ -164,6 +185,17 @@ export function memoryRepo(seed = {}) {
     async getOrder(tenantId, id) {
       const o = tables.orders.find(x => x.tenant_id === tenantId && x.id === id);
       return o ? { ...o, customers: tables.customers.find(c => c.id === o.customer_id), app_users: userOf(o.user_id), order_items: tables.order_items.filter(i => i.order_id === o.id) } : null;
-    }
+    },
+    async listOrderFiles(tenantId, orderId) { return tables.order_files.filter(f => f.tenant_id === tenantId && f.order_id === orderId).map(({ storage_path, tenant_id, order_id, ...f }) => f); },
+    async getOrderFile(tenantId, orderId, id) { return tables.order_files.find(f => f.tenant_id === tenantId && f.order_id === orderId && f.id === id) || null; },
+    async addOrderFile(row) { const file = { id: uuid(), created_at: new Date().toISOString(), ...row }; tables.order_files.push(file); return file; },
+    async putObject(path, data) { if (objects.has(path)) throw Object.assign(new Error('Arquivo já existe.'), { status: 409 }); objects.set(path, Buffer.from(data)); },
+    async getObject(path) { const data = objects.get(path); if (!data) throw Object.assign(new Error('Arquivo indisponível.'), { status: 502 }); return data; },
+    async savePushSubscription(row) { const found = tables.push_subscriptions.find(s => s.endpoint === row.endpoint); if (found) Object.assign(found, row); else tables.push_subscriptions.push({ id: uuid(), ...row }); },
+    async deletePushSubscription(endpoint) { tables.push_subscriptions = tables.push_subscriptions.filter(s => s.endpoint !== endpoint); },
+    async listAdminPushSubscriptions(tenantId) { return tables.push_subscriptions.filter(s => s.tenant_id === tenantId && tables.app_users.some(u => u.id === s.user_id && u.role === 'admin' && u.active !== false)); },
+    async countPushSubscriptions(userId) { return tables.push_subscriptions.filter(s => s.user_id === userId).length; },
+    async getSecret(key) { return tables.app_secrets.find(s => s.key === key)?.value || null; },
+    async putSecret(key, value) { if (!tables.app_secrets.some(s => s.key === key)) tables.app_secrets.push({ key, value }); }
   };
 }

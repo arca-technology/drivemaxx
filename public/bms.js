@@ -16,14 +16,14 @@ function applyRole(me) {
   $('settings-integrations-group').hidden = !admin && !me.customer;
   $('settings-help').hidden = !me.database;
   if (me.database) setTimeout(() => startOnboarding(me), 0);
+  setTimeout(updatePush, 0);
   document.querySelectorAll('[data-admin-only]').forEach(el => { el.hidden = !admin || (el.hasAttribute('data-database-only') && !me.database); });
   document.querySelector('[data-view="orders"]').hidden = !me.database;
   document.querySelector('[data-view="users"]').hidden = !(me.database && admin);
   $('orders-tab-label').textContent = admin ? 'PEDIDOS' : 'MEUS PEDIDOS';
   document.body.classList.toggle('role-buyer', !admin);
   $('default-margin').value = String(state.defaultMargin);
-  // Buyers see the price they pay as their sale price.
-  COLUMNS.find(c => c.key === 'precoComprador').label = admin ? 'PREÇO COMPRADOR' : 'PREÇO DE VENDA';
+  $('default-fixed').value = String(state.defaultFixed);
   if (!admin) {
     ['refresh', 'import', 'connect', 'connect-hint', 'setup'].forEach(id => { $(id).hidden = true; });
     $('search').placeholder = 'Buscar por nome, SKU ou GTIN...';
@@ -49,6 +49,7 @@ async function initBuyer() {
 function afterRender() {
   const buyer = state.role === 'buyer';
   $('bag').hidden = !buyer;
+  $('xml-order').hidden = !buyer || !state.products.length;
   if (buyer) {
     const items = bagProducts();
     $('bag').disabled = !items.length;
@@ -64,8 +65,8 @@ async function saveSettings(ids, patch) {
   try {
     await api('/api/products/settings', patchJson({ ids, ...patch }));
     for (const id of ids) {
-      const current = state.settings.get(id) || { visible: true, margin: null };
-      state.settings.set(id, { ...current, ...('visible' in patch ? { visible: patch.visible } : {}), ...('margin' in patch ? { margin: patch.margin === null || patch.margin === '' ? null : Number(patch.margin) } : {}) });
+      const current = state.settings.get(id) || { visible: true, margin: null, fixed: null };
+      state.settings.set(id, { ...current, ...('visible' in patch ? { visible: patch.visible } : {}), ...('margin' in patch ? { margin: patch.margin === null || patch.margin === '' ? null : Number(patch.margin) } : {}), ...('fixed' in patch ? { fixed: patch.fixed === null || patch.fixed === '' ? null : Number(patch.fixed) } : {}) });
     }
     render();
   } catch (error) { notice(error.message, true); render(); }
@@ -77,11 +78,13 @@ $('rows').addEventListener('click', event => {
   saveSettings([id], { visible: !(state.settings.get(id)?.visible ?? true) });
 });
 $('rows').addEventListener('change', event => {
-  const input = event.target.closest('[data-margin]');
+  const input = event.target.closest('[data-margin], [data-fixed]');
   if (!input) return;
-  saveSettings([Number(input.dataset.margin)], { margin: input.value === '' ? null : Number(input.value) });
+  const value = input.value === '' ? null : Number(input.value);
+  if ('fixed' in input.dataset) saveSettings([Number(input.dataset.fixed)], { fixed: value });
+  else saveSettings([Number(input.dataset.margin)], { margin: value });
 });
-$('rows').addEventListener('keydown', event => { if (event.target.matches('[data-margin]') && event.key === 'Enter') event.target.blur(); });
+$('rows').addEventListener('keydown', event => { if (event.target.matches('[data-margin], [data-fixed]') && event.key === 'Enter') event.target.blur(); });
 $('bulk-hide').onclick = () => saveSettings([...state.selected], { visible: false });
 $('bulk-show').onclick = () => saveSettings([...state.selected], { visible: true });
 $('bulk-margin').onclick = () => {
@@ -98,13 +101,18 @@ $('default-margin').addEventListener('change', async () => {
   try { await api('/api/tenant', patchJson({ defaultMargin: value })); state.defaultMargin = value; render(); }
   catch (error) { notice(error.message, true); $('default-margin').value = String(state.defaultMargin); }
 });
+$('default-fixed').addEventListener('change', async () => {
+  const value = Number($('default-fixed').value);
+  try { await api('/api/tenant', patchJson({ defaultFixedCost: value })); state.defaultFixed = value; render(); }
+  catch (error) { notice(error.message, true); $('default-fixed').value = String(state.defaultFixed); }
+});
 
 // ── Buyer: bag and order creation ────────────────────────────
 function bagProducts() { return [...state.selected].map(id => state.byId.get(id)).filter(p => p && !kidsOf(p.id).length); }
 function bagTotal() {
   return [...$('bag-rows').querySelectorAll('tr[data-id]')].reduce((sum, tr) => {
     const p = state.byId.get(Number(tr.dataset.id)), q = Number(tr.querySelector('input').value) || 0;
-    const line = (p.precoComprador || 0) * q;
+    const line = (priceOf(p) || 0) * q;
     tr.querySelector('.line-total').textContent = money(line);
     return sum + line;
   }, 0);
@@ -113,11 +121,11 @@ $('bag').onclick = () => {
   const items = bagProducts();
   if (!items.length) return;
   $('bag-rows').innerHTML = items.map(p => {
-    const stock = stockOf(p), priced = p.precoComprador != null;
-    return `<tr data-id="${p.id}"><td><b>${escape(p.descricao)}</b><small>${escape(state.grade.get(p.id) || p.sku || '')}</small></td><td class="numeric">${qty(stock)}</td><td class="numeric">${priced ? money(p.precoComprador) : '<span class="stock-out">sem preço</span>'}</td><td class="numeric"><input class="qty-input" type="number" min="1" step="1" value="1" aria-label="Quantidade de ${escape(p.descricao)}"${priced ? '' : ' disabled'}></td><td class="numeric line-total">—</td></tr>`;
+    const stock = stockOf(p), priced = priceOf(p) != null;
+    return `<tr data-id="${p.id}"><td><b>${escape(p.descricao)}</b><small>${escape(state.grade.get(p.id) || p.sku || '')}</small></td><td class="numeric">${qty(stock)}</td><td class="numeric">${priced ? money(priceOf(p)) : '<span class="stock-out">sem preço</span>'}</td><td class="numeric"><input class="qty-input" type="number" min="1" step="1" value="1" aria-label="Quantidade de ${escape(p.descricao)}"${priced ? '' : ' disabled'}></td><td class="numeric line-total">—</td></tr>`;
   }).join('');
   $('bag-notes').value = ''; $('bag-error').hidden = true;
-  $('bag-save').disabled = items.some(p => p.precoComprador == null);
+  $('bag-save').disabled = items.some(p => priceOf(p) == null);
   if ($('bag-save').disabled) { $('bag-error').textContent = 'Há produtos sem preço definido. Remova-os da seleção para fazer o pedido.'; $('bag-error').hidden = false; }
   $('bag-total').textContent = money(bagTotal());
   openDrawer($('bag-dialog'));
@@ -186,6 +194,8 @@ async function openOrder(id) {
     $('order-items').innerHTML = o.items.map(i => `<tr><td>${escape(i.description)}</td><td class="mono">${escape(i.sku || '')}</td><td class="numeric">${qty(i.quantity)}</td><td class="numeric">${money(i.unitPrice)}</td><td class="numeric"><b>${money(i.total)}</b></td></tr>`).join('');
     $('order-total').textContent = money(o.total);
     $('order-resend').hidden = !(state.role === 'admin' && o.status !== 'enviado_olist' && o.status !== 'cancelado');
+    $('order-files').hidden = !o.files?.length && o.source !== 'xml';
+    $('order-files').innerHTML = `<div class="xml-attach-head"><b>${o.source === 'xml' ? `Pedido criado por XML${o.nfeNumber ? ` · NF-e nº ${escape(o.nfeNumber)}` : ''}` : 'Anexos'}</b></div>${o.nfeKey ? `<p class="xml-hint mono">Chave ${escape(o.nfeKey)}</p>` : ''}<ul class="file-list">${(o.files || []).map(f => `<li><span class="file-kind ${f.kind}">${f.kind.toUpperCase()}</span><a href="/api/orders/${encodeURIComponent(o.id)}/files/${encodeURIComponent(f.id)}" download>${escape(f.name)}</a><small>${fileSize(f.size)}</small></li>`).join('') || '<li class="muted">Sem arquivos.</li>'}</ul>`;
     openDrawer($('order-dialog'));
   } catch (error) { moduleNotice('orders-notice', error.message, true); }
 }
@@ -293,7 +303,7 @@ function applyDetail(d) {
   if (p) {
     p.imagem = d.imagem || p.imagem || null;
     if (d.precos) { p.precos = { ...p.precos, ...d.precos }; p.custoFicha = d.precos.custoFicha; }
-    if (state.role !== 'admin') p.precoComprador = d.precoComprador;
+    if (state.role !== 'admin') p.precoFinal = d.precoFinal;
   }
   const kids = (d.detalhes?.variacoes || []).map(v => Number(v.id)).filter(id => state.byId.has(id));
   if (kids.length) {
@@ -332,17 +342,20 @@ function renderDetail(d, loading = false) {
   // Middle: data
   const stock = stockOf(p.id ? p : { id: d.id });
   // A parent is sold through its variations: show their price range and summed stock.
-  const kidPrices = kids.map(k => buyerPriceOf(k)).filter(v => v != null);
-  const priceLabel = kids.length ? (kidPrices.length ? (Math.min(...kidPrices) === Math.max(...kidPrices) ? money(kidPrices[0]) : `${money(Math.min(...kidPrices))} – ${money(Math.max(...kidPrices))}`) : 'Sem preço') : d.precoComprador != null ? money(d.precoComprador) : 'Sem preço';
+  const kidPrices = kids.map(k => priceOf(k)).filter(v => v != null);
+  const selfPrice = priceOf(p.id ? p : { id: d.id, precoFinal: d.precoFinal });
+  const priceLabel = kids.length ? (kidPrices.length ? (Math.min(...kidPrices) === Math.max(...kidPrices) ? money(kidPrices[0]) : `${money(Math.min(...kidPrices))} – ${money(Math.max(...kidPrices))}`) : 'Sem preço') : selfPrice != null ? money(selfPrice) : 'Sem preço';
   const own = (field, fallback) => kids.length ? qty(stockOf(p, field)) : qty(fallback ?? stockOf(p, field));
   const rows = [
-    [`${admin ? 'Preço comprador' : 'Preço de venda'}${kids.length ? ' (variações)' : ''}`, priceLabel, 'accent'],
+    [`Preço${kids.length ? ' (variações)' : ''}`, priceLabel, 'accent'],
     ['Estoque disponível', stock == null ? '—' : qty(stock), stock != null && stock <= 0 ? 'danger' : ''],
     ...(admin ? [
       ['Saldo em estoque', own('saldo', d.estoque?.saldo)], ['Reservado', own('reservado', d.estoque?.reservado)],
       ['Preço de venda', money(d.precos?.preco ?? p.precos?.preco)], ['Preço promocional', money(d.precos?.precoPromocional ?? p.precos?.precoPromocional)],
       ['Preço de custo', money(d.precos?.precoCusto ?? p.precos?.precoCusto)], ['Custo médio', money(d.precos?.precoCustoMedio ?? p.precos?.precoCustoMedio)], ['Custo (histórico Olist)', money(d.precos?.custoFicha ?? p.custoFicha)],
       ['Margem %', `<input class="margin-input" type="number" step="0.01" data-margin="${d.id}" value="${settingOf({ id: d.id }).margin ?? ''}" placeholder="${escape(String(state.defaultMargin))}">`, 'raw'],
+      ...(kids.length ? [] : [['Preço comprador', money(buyerPriceOf(p.id ? p : { id: d.id }))]]),
+      ['Custo fixo R$', `<input class="margin-input" type="number" step="0.01" min="0" data-fixed="${d.id}" value="${settingOf({ id: d.id }).fixed ?? ''}" placeholder="${escape(String(state.defaultFixed))}">`, 'raw'],
       ['Visível ao comprador', `<button class="toggle${settingOf({ id: d.id }).visible ? ' on' : ''}" type="button" role="switch" aria-checked="${settingOf({ id: d.id }).visible}" data-visible="${d.id}"><i></i></button>`, 'raw']
     ] : []),
     ['SKU', d.sku || p.sku || '—'], ['GTIN / EAN', d.gtin || p.gtin || '—'], ['Unidade', d.unidade || p.unidade || '—'],
@@ -353,15 +366,15 @@ function renderDetail(d, loading = false) {
   $('pd-data').innerHTML = `<table class="pd-table data">${rows.map(([k, v, cls]) => `<tr class="${cls || ''}"><th>${k}</th><td>${cls === 'raw' ? v : escape(v)}</td></tr>`).join('')}</table>`;
   // Right: variations
   $('pd-variations').innerHTML = kids.length
-    ? `<table class="pd-table vars"><thead><tr>${state.role === 'buyer' ? '<th></th>' : ''}<th>GRADE</th><th>SKU</th><th class="numeric">ESTOQUE</th><th class="numeric">${state.role === 'admin' ? 'PREÇO COMPRADOR' : 'PREÇO DE VENDA'}</th></tr></thead><tbody>${kids.map(k => { const s = stockOf(k), price = buyerPriceOf(k); return `<tr data-variation="${k.id}">${state.role === 'buyer' ? `<td><input type="checkbox" data-pick="${k.id}"${state.selected.has(k.id) ? ' checked' : ''}${price == null ? ' disabled' : ''} aria-label="Selecionar ${escape(state.grade.get(k.id) || k.sku || '')}"></td>` : ''}<td><b>${escape(state.grade.get(k.id) || k.descricao)}</b></td><td class="mono">${escape(k.sku || '')}</td><td class="numeric${s != null && s <= 0 ? ' danger' : ''}">${qty(s)}</td><td class="numeric">${price != null ? money(price) : '—'}</td></tr>`; }).join('')}</tbody></table>`
+    ? `<table class="pd-table vars"><thead><tr>${state.role === 'buyer' ? '<th></th>' : ''}<th>GRADE</th><th>SKU</th><th class="numeric">ESTOQUE</th><th class="numeric">PREÇO</th></tr></thead><tbody>${kids.map(k => { const s = stockOf(k), price = priceOf(k); return `<tr data-variation="${k.id}">${state.role === 'buyer' ? `<td><input type="checkbox" data-pick="${k.id}"${state.selected.has(k.id) ? ' checked' : ''}${price == null ? ' disabled' : ''} aria-label="Selecionar ${escape(state.grade.get(k.id) || k.sku || '')}"></td>` : ''}<td><b>${escape(state.grade.get(k.id) || k.descricao)}</b></td><td class="mono">${escape(k.sku || '')}</td><td class="numeric${s != null && s <= 0 ? ' danger' : ''}">${qty(s)}</td><td class="numeric">${price != null ? money(price) : '—'}</td></tr>`; }).join('')}</tbody></table>`
     : `<p class="pd-empty">${loading && p.tipoVariacao === 'P' ? 'Carregando variações…' : 'Produto sem variações.'}</p>`;
   $('product-add').hidden = state.role !== 'buyer';
-  $('product-add').disabled = loading || (d.precoComprador == null && !kids.some(k => buyerPriceOf(k) != null));
+  $('product-add').disabled = loading || (selfPrice == null && !kids.some(k => priceOf(k) != null));
 }
 async function openProduct(id, refresh = false) {
   detailId = id;
   const p = state.byId.get(id) || { id };
-  renderDetail({ id, descricao: p.descricao, sku: p.sku, gtin: p.gtin, situacao: p.situacao, imagem: p.imagem, precoComprador: buyerPriceOf(p) }, true);
+  renderDetail({ id, descricao: p.descricao, sku: p.sku, gtin: p.gtin, situacao: p.situacao, imagem: p.imagem, precoFinal: p.precoFinal }, true);
   if (!$('product-dialog').open) openDrawer($('product-dialog'));
   try {
     const d = await api(`/api/products/${id}/detail${refresh ? '?refresh=1' : ''}`);
@@ -398,11 +411,12 @@ $('pd-data').addEventListener('click', async event => {
   if (detailData) renderDetail({ ...detailData, visivel: state.settings.get(id)?.visible });
 });
 $('pd-data').addEventListener('change', async event => {
-  const input = event.target.closest('[data-margin]');
+  const input = event.target.closest('[data-margin], [data-fixed]');
   if (!input) return;
-  const id = Number(input.dataset.margin);
-  await saveSettings([id], { margin: input.value === '' ? null : Number(input.value) });
-  if (detailData) renderDetail({ ...detailData, precoComprador: buyerPriceOf(state.byId.get(id) || {}) });
+  const value = input.value === '' ? null : Number(input.value);
+  if ('fixed' in input.dataset) await saveSettings([Number(input.dataset.fixed)], { fixed: value });
+  else await saveSettings([Number(input.dataset.margin)], { margin: value });
+  if (detailData) renderDetail(detailData);
 });
 $('pd-variations').addEventListener('change', event => {
   const box = event.target.closest('[data-pick]');
@@ -413,7 +427,7 @@ $('pd-variations').addEventListener('change', event => {
 });
 $('product-refresh').onclick = () => { if (detailId) openProduct(detailId, true); };
 $('product-add').onclick = () => {
-  const ids = kidsOf(detailId).length ? kidsOf(detailId).filter(id => buyerPriceOf(state.byId.get(id)) != null) : [detailId];
+  const ids = kidsOf(detailId).length ? kidsOf(detailId).filter(id => priceOf(state.byId.get(id)) != null) : [detailId];
   ids.forEach(id => state.selected.add(id));
   render(); if (detailData) renderDetail(detailData);
   notice(`${ids.length === 1 ? 'Produto adicionado' : `${ids.length} variações adicionadas`} à seleção. Clique em Sacola para informar as quantidades.`);
@@ -606,3 +620,188 @@ for (const id of ['integrations', 'settings-integrations']) {
   const adminOpen = $(id).onclick;
   $(id).onclick = () => (state.role === 'admin' ? adminOpen() : (closeDrawer($('settings-drawer')), openCustomerIntegrations()));
 }
+
+
+// ── Buyer: order from an NF-e XML, with PDF attachments ──────
+const fileSize = bytes => bytes >= 1048576 ? `${(bytes / 1048576).toFixed(1).replace('.', ',')} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+const MAX_FILE = 4 * 1024 * 1024;
+let xmlOrder = null; // { file, nfe: { key, number, issuer, date }, lines: [{ code, gtin, name, qty, unit, product }] }
+let xmlPdfs = [];
+const nfeText = (node, tag) => node?.getElementsByTagNameNS('*', tag)[0]?.textContent?.trim() || '';
+const gtinOf = value => (/^\d{8,14}$/.test(value || '') ? value : '');
+function parseNfe(xmlText) {
+  const doc = new DOMParser().parseFromString(xmlText, 'application/xml');
+  if (doc.getElementsByTagName('parsererror').length) throw new Error('Não foi possível ler o arquivo. Confira se é o XML da NF-e.');
+  const inf = doc.getElementsByTagNameNS('*', 'infNFe')[0];
+  const dets = [...doc.getElementsByTagNameNS('*', 'det')];
+  if (!inf || !dets.length) throw new Error('O arquivo não parece ser o XML de uma NF-e (não encontrei os itens da nota).');
+  const ide = inf.getElementsByTagNameNS('*', 'ide')[0], emit = inf.getElementsByTagNameNS('*', 'emit')[0];
+  return {
+    nfe: { key: (inf.getAttribute('Id') || '').replace(/\D/g, ''), number: nfeText(ide, 'nNF'), issuer: nfeText(emit, 'xFant') || nfeText(emit, 'xNome'), date: nfeText(ide, 'dhEmi') || nfeText(ide, 'dEmi') },
+    lines: dets.map(det => {
+      const prod = det.getElementsByTagNameNS('*', 'prod')[0];
+      return { code: nfeText(prod, 'cProd'), gtin: gtinOf(nfeText(prod, 'cEAN')) || gtinOf(nfeText(prod, 'cEANTrib')), name: nfeText(prod, 'xProd'), qty: Number(nfeText(prod, 'qCom')) || 0, unit: nfeText(prod, 'uCom') };
+    })
+  };
+}
+// Matches each NF-e line to a buyable product (no parents) by SKU, then by GTIN.
+function matchNfe(lines) {
+  const sku = new Map(), gtin = new Map();
+  for (const p of state.products) {
+    if (kidsOf(p.id).length) continue;
+    if (p.sku) sku.set(String(p.sku).trim().toLowerCase(), p);
+    if (p.gtin) gtin.set(String(p.gtin).trim().replace(/^0+/, ''), p);
+  }
+  return lines.map(line => ({ ...line, product: sku.get(line.code.toLowerCase()) || (line.gtin && gtin.get(line.gtin.replace(/^0+/, ''))) || null }));
+}
+function xmlError(message) { $('xml-error').hidden = !message; $('xml-error').textContent = message || ''; }
+function renderXmlOrder() {
+  const ready = !!xmlOrder;
+  ['xml-summary', 'xml-table', 'xml-attach', 'xml-notes-field'].forEach(id => { $(id).hidden = !ready; });
+  if (!ready) { $('xml-save').disabled = true; $('xml-total').textContent = money(0); return; }
+  const found = xmlOrder.lines.filter(l => l.product).length;
+  $('xml-summary').innerHTML = `<div><span>NF-e</span><b>${escape(xmlOrder.nfe.number || '—')}</b><small>${escape(xmlOrder.file.name)}</small></div><div><span>Emitente</span><b>${escape(xmlOrder.nfe.issuer || '—')}</b></div><div><span>Emissão</span><b>${xmlOrder.nfe.date ? dateTime(xmlOrder.nfe.date) : '—'}</b></div><div><span>Itens localizados</span><b class="${found < xmlOrder.lines.length ? 'stock-out' : ''}">${found} de ${xmlOrder.lines.length}</b></div>`;
+  $('xml-rows').innerHTML = xmlOrder.lines.map((l, i) => {
+    const p = l.product, price = p ? priceOf(p) : null;
+    const target = p ? `<b>${escape(p.descricao)}</b><small>${escape(state.grade.get(p.id) || p.sku || '')}${price == null ? ' · <span class="stock-out">sem preço</span>' : ''}</small>` : '<span class="stock-out">Não encontrado no catálogo</span><small>Este item fica fora do pedido.</small>';
+    return `<tr data-line="${i}" class="${p ? '' : 'muted-row'}"><td><b>${escape(l.name)}</b><small>Cód. ${escape(l.code || '—')}${l.gtin ? ` · GTIN ${escape(l.gtin)}` : ''} · ${qty(l.qty)} ${escape(l.unit)}</small></td><td>${target}</td><td class="numeric">${price != null ? money(price) : '—'}</td><td class="numeric">${p && price != null ? `<input class="qty-input" type="number" min="0" step="any" value="${l.qty}" aria-label="Quantidade de ${escape(p.descricao)}">` : '—'}</td><td class="numeric line-total">—</td></tr>`;
+  }).join('');
+  $('xml-pdf-list').innerHTML = xmlPdfs.map((f, i) => `<li><span class="file-kind pdf">PDF</span><span>${escape(f.name)}</span><small>${fileSize(f.size)}</small><button class="icon-button" type="button" data-remove-pdf="${i}" aria-label="Remover ${escape(f.name)}">${icon('close')}</button></li>`).join('');
+  xmlTotal();
+}
+function xmlItems() {
+  return [...$('xml-rows').querySelectorAll('tr[data-line]')].map(tr => {
+    const line = xmlOrder.lines[Number(tr.dataset.line)], input = tr.querySelector('input');
+    return input ? { tr, line, quantity: Number(input.value) } : null;
+  }).filter(Boolean);
+}
+function xmlTotal() {
+  let total = 0;
+  for (const { tr, line, quantity } of xmlItems()) {
+    const value = (priceOf(line.product) || 0) * (quantity > 0 ? quantity : 0);
+    tr.querySelector('.line-total').textContent = money(value); total += value;
+  }
+  $('xml-total').textContent = money(total);
+  $('xml-save').disabled = !xmlItems().some(i => i.quantity > 0);
+}
+$('xml-order').onclick = () => {
+  xmlOrder = null; xmlPdfs = []; $('xml-file').value = ''; $('xml-pdfs').value = ''; $('xml-notes').value = '';
+  $('xml-file-label').textContent = 'Selecionar XML da NF-e'; xmlError(''); renderXmlOrder();
+  openDrawer($('xml-dialog'));
+};
+$('xml-form').addEventListener('submit', event => event.preventDefault());
+$('xml-file').addEventListener('change', async () => {
+  const file = $('xml-file').files[0];
+  if (!file) return;
+  xmlError('');
+  try {
+    if (file.size > MAX_FILE) throw new Error('O XML passa de 4 MB.');
+    const parsed = parseNfe(await file.text());
+    xmlOrder = { file, nfe: parsed.nfe, lines: matchNfe(parsed.lines) };
+    $('xml-file-label').textContent = 'Trocar XML';
+    if (!xmlOrder.lines.some(l => l.product)) xmlError('Nenhum item da nota foi localizado no catálogo. Confira se os códigos ou GTINs da nota são os mesmos do fornecedor.');
+  } catch (error) { xmlOrder = null; xmlError(error.message); }
+  renderXmlOrder();
+});
+$('xml-pdfs').addEventListener('change', () => {
+  const picked = [...$('xml-pdfs').files];
+  const invalid = picked.filter(f => f.size > MAX_FILE || !(f.type === 'application/pdf' || /\.pdf$/i.test(f.name)));
+  xmlPdfs.push(...picked.filter(f => !invalid.includes(f)));
+  if (xmlPdfs.length > 15) xmlPdfs = xmlPdfs.slice(0, 15);
+  xmlError(invalid.length ? `Ignorado: ${invalid.map(f => f.name).join(', ')} (somente PDF de até 4 MB).` : '');
+  $('xml-pdfs').value = ''; renderXmlOrder();
+});
+$('xml-pdf-list').addEventListener('click', event => {
+  const button = event.target.closest('[data-remove-pdf]');
+  if (!button) return;
+  xmlPdfs.splice(Number(button.dataset.removePdf), 1); renderXmlOrder();
+});
+$('xml-rows').addEventListener('input', xmlTotal);
+async function uploadOrderFile(orderId, file, type) {
+  return api(`/api/orders/${encodeURIComponent(orderId)}/files`, { method: 'POST', headers: { 'Content-Type': type, 'X-File-Name': encodeURIComponent(file.name) }, body: file });
+}
+$('xml-save').onclick = async () => {
+  const items = xmlItems().filter(i => i.quantity > 0).map(i => ({ id: i.line.product.id, quantity: i.quantity }));
+  if (!items.length) return xmlError('Informe ao menos uma quantidade.');
+  const button = $('xml-save');
+  button.disabled = true; button.textContent = 'Criando pedido…'; xmlError('');
+  try {
+    const order = await api('/api/orders', json({ items, notes: $('xml-notes').value.trim(), source: 'xml', nfe: { key: xmlOrder.nfe.key, number: xmlOrder.nfe.number } }));
+    const failed = [];
+    const uploads = [[xmlOrder.file, 'application/xml'], ...xmlPdfs.map(f => [f, 'application/pdf'])];
+    for (const [index, [file, type]] of uploads.entries()) {
+      button.textContent = `Enviando anexos ${index + 1}/${uploads.length}…`;
+      try { await uploadOrderFile(order.id, file, type); } catch (error) { failed.push(`${file.name} (${error.message})`); }
+    }
+    closeDrawer($('xml-dialog'));
+    const base = order.status === 'enviado_olist' ? `Pedido #${order.number} criado pelo XML (Olist nº ${order.olistOrderNumber || '—'}). Total ${money(order.total)}.` : `Pedido #${order.number} salvo, mas não foi enviado à Olist: ${order.olistError || 'tente novamente mais tarde'}.`;
+    notice(failed.length ? `${base} Não foi possível anexar: ${failed.join('; ')}.` : base, order.status !== 'enviado_olist' || failed.length > 0);
+  } catch (error) { xmlError(error.message); }
+  finally { button.disabled = false; button.textContent = 'Criar pedido'; }
+};
+
+// Opening the app from a notification goes straight to the orders module.
+if (new URLSearchParams(location.search).get('view') === 'orders') {
+  history.replaceState(null, '', '/');
+  const openOrders = () => { const tab = document.querySelector('[data-view="orders"]'); if (tab && !tab.hidden) tab.click(); else setTimeout(openOrders, 300); };
+  setTimeout(openOrders, 300);
+}
+
+
+// ── Installed app (PWA) and admin push notifications ─────────
+let installPrompt = null;
+const standalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+const isIos = /iphone|ipad|ipod/i.test(navigator.userAgent);
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
+addEventListener('beforeinstallprompt', event => { event.preventDefault(); installPrompt = event; updateInstall(); });
+addEventListener('appinstalled', () => { installPrompt = null; updateInstall(); });
+function updateInstall() {
+  if (standalone()) { $('install-app').hidden = true; $('install-hint').textContent = 'Você está usando o app instalado.'; return; }
+  $('install-app').hidden = !installPrompt;
+  $('install-hint').textContent = installPrompt ? 'Abre em janela própria, com ícone na área de trabalho ou na tela inicial.' : isIos ? 'No iPhone: Compartilhar → Adicionar à Tela de Início.' : 'No Chrome ou Edge: menu ⋮ → Instalar DRIVE MAXX.';
+}
+$('install-app').onclick = async () => {
+  if (!installPrompt) return;
+  installPrompt.prompt();
+  await installPrompt.userChoice.catch(() => {});
+  installPrompt = null; updateInstall();
+};
+updateInstall();
+
+const pushSupported = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+const keyBytes = value => { const raw = atob((value + '='.repeat((4 - value.length % 4) % 4)).replace(/-/g, '+').replace(/_/g, '/')); return Uint8Array.from(raw, c => c.charCodeAt(0)); };
+async function pushState() {
+  if (!pushSupported()) return { supported: false };
+  const reg = await navigator.serviceWorker.ready;
+  return { supported: true, reg, sub: await reg.pushManager.getSubscription() };
+}
+async function updatePush() {
+  const button = $('push-toggle');
+  $('push-row').hidden = !(state.role === 'admin' && state.database);
+  if ($('push-row').hidden) return;
+  const s = await Promise.race([pushState(), new Promise(done => setTimeout(() => done({ supported: false, slow: true }), 4000))]).catch(() => ({ supported: false }));
+  if (!s.supported) { button.hidden = true; $('push-hint').textContent = isIos && !standalone() ? 'No iPhone, instale o app primeiro para receber notificações.' : 'Este navegador não suporta notificações.'; return; }
+  if (Notification.permission === 'denied') { button.hidden = true; $('push-hint').textContent = 'Notificações bloqueadas. Libere nas permissões do site e recarregue.'; return; }
+  button.hidden = false;
+  button.textContent = s.sub ? 'DESATIVAR' : 'ATIVAR';
+  button.classList.toggle('danger', !!s.sub);
+  $('push-hint').textContent = s.sub ? 'Ativadas neste aparelho.' : 'Aviso a cada novo pedido, mesmo com o app fechado.';
+}
+$('push-toggle').onclick = async () => {
+  const button = $('push-toggle');
+  button.disabled = true;
+  try {
+    const s = await pushState();
+    if (s.sub) {
+      await api('/api/push', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ endpoint: s.sub.endpoint }) }).catch(() => {});
+      await s.sub.unsubscribe();
+    } else {
+      if (await Notification.requestPermission() !== 'granted') throw new Error('Permissão de notificação não concedida.');
+      const { publicKey } = await api('/api/push');
+      const sub = await s.reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(publicKey) });
+      await api('/api/push', json({ ...sub.toJSON(), test: true }));
+    }
+    await updatePush();
+  } catch (error) { $('push-hint').textContent = error.message; }
+  finally { button.disabled = false; }
+};

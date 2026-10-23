@@ -315,3 +315,19 @@ html[data-theme=dark] .detail-warning{background:#3a2f12;color:#f5c66b}
 .ob-status i{width:7px;height:7px;flex-shrink:0}.ob-status.ok{border-color:var(--green);color:var(--green)}.ob-status.ok i{background:var(--green)}
 .ob-status.error{border-color:#e7b4ab;color:#b74e42;font-weight:500;line-height:1.5}.ob-status.error i{background:currentColor}html[data-theme=dark] .ob-status.error{color:#ffb6a9}
 .ob-note code{font-size:11px;overflow-wrap:anywhere}.ob-actions{display:flex;gap:8px}
+
+/* Order by NF-e XML and attachments */
+.xml-pick{display:flex;flex-direction:column;align-items:flex-start;gap:8px;padding:16px 18px;border-bottom:1px solid var(--line)}
+.file-button{cursor:pointer}.file-button svg{width:15px}
+.xml-hint{margin:0;color:var(--muted);font-size:11px;line-height:1.6}.xml-hint.mono{font-size:10px;overflow-wrap:anywhere}
+.xml-attach{display:flex;flex-direction:column;gap:8px;padding:14px 18px;border-top:1px solid var(--line)}
+.xml-attach-head{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:12px}
+.file-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.file-list li{display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:var(--surface);font-size:11px;min-width:0}
+.file-list li>span:nth-child(2),.file-list li a{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.file-list li a{color:var(--blue);text-decoration:underline}.file-list li small{color:var(--muted)}.file-list li.muted{color:var(--muted)}
+.file-list .icon-button{width:24px;height:24px}.file-list .icon-button svg{width:12px}
+.file-kind{flex-shrink:0;padding:2px 5px;border-radius:3px;font-size:8px;font-weight:800;letter-spacing:.4px;background:var(--head);color:var(--muted)}.file-kind.pdf{background:#fdecea;color:#b74e42}.file-kind.xml{background:var(--blue-soft);color:var(--blue)}
+html[data-theme=dark] .file-kind.pdf{background:#38211f;color:#ffb6a9}
+.muted-row td{opacity:.65}
+.settings-hint{display:block;margin-top:2px;color:var(--muted);font-size:10px;line-height:1.4}.settings-row>span{min-width:0}

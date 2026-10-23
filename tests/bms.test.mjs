@@ -19,12 +19,13 @@ async function setup(t, olist, registry = async () => json({}, 404)) {
   app.listen(0, '127.0.0.1'); await once(app, 'listening');
   t.after(() => new Promise(resolve => { app.close(resolve); app.closeAllConnections(); }));
   const base = `http://127.0.0.1:${app.address().port}`;
-  const call = (path, { method = 'GET', body, cookie, headers = {} } = {}) => new Promise((resolve, reject) => {
-    const req = request(`${base}${path}`, { method, headers: { Host: 'localhost:3000', Origin: 'http://localhost:3000', 'Content-Type': 'application/json', ...(cookie ? { Cookie: cookie } : {}), ...headers } }, res => {
+  const call = (path, { method = 'GET', body, raw, cookie, headers = {} } = {}) => new Promise((resolve, reject) => {
+    const payload = raw !== undefined ? raw : body === undefined ? undefined : JSON.stringify(body);
+    const req = request(`${base}${path}`, { method, headers: { Host: 'localhost:3000', Origin: 'http://localhost:3000', 'Content-Type': 'application/json', ...(payload !== undefined ? { 'Content-Length': Buffer.byteLength(payload) } : {}), ...(cookie ? { Cookie: cookie } : {}), ...headers } }, res => {
       const chunks = []; res.on('data', c => chunks.push(c));
       res.on('end', () => { const text = Buffer.concat(chunks).toString(); let data = null; try { data = JSON.parse(text); } catch { data = text; } resolve({ status: res.statusCode, data, headers: res.headers }); });
     });
-    req.on('error', reject); req.end(body === undefined ? undefined : JSON.stringify(body));
+    req.on('error', reject); req.end(payload);
   });
   const loginAs = async (username, password) => {
     const r = await call('/auth/app-login', { method: 'POST', body: { username, password } });
@@ -88,6 +89,11 @@ test('database login, roles, catalog, users, orders and Olist order creation', a
   // Admin hides product 4 and sets a 50% margin on product 2.
   assert.equal((await call('/api/products/settings', { method: 'PATCH', cookie: admin, body: { ids: [4], visible: false } })).status, 200);
   assert.equal((await call('/api/products/settings', { method: 'PATCH', cookie: admin, body: { ids: [2], margin: 50 } })).status, 200);
+  // Fixed cost (R$): product 2 has its own, the others use the tenant default.
+  assert.equal((await call('/api/products/settings', { method: 'PATCH', cookie: admin, body: { ids: [2], fixed: -1 } })).status, 400);
+  assert.equal((await call('/api/products/settings', { method: 'PATCH', cookie: admin, body: { ids: [2], fixed: 2 } })).status, 200);
+  assert.equal((await call('/api/tenant', { method: 'PATCH', cookie: admin, body: { defaultFixedCost: 5 } })).status, 200);
+  assert.equal(repo.tables.tenants[0].default_margin, 10);
 
   // CNPJ lookup and buyer creation.
   const cnpj = await call('/api/cnpj/12.345.678/0001-90', { cookie: admin });
@@ -102,8 +108,9 @@ test('database login, roles, catalog, users, orders and Olist order creation', a
   const buyer = await loginAs('compra', 'senha-compra');
   const view = (await call('/api/catalog', { cookie: buyer })).data;
   assert.deepEqual(view.products.map(p => p.id).sort(), [1, 2, 3]);
-  assert.equal(view.products.find(p => p.id === 2).precoComprador, 60); // 40 + 50%
-  assert.equal(view.products.find(p => p.id === 3).precoComprador, 33); // average cost 30 + default 10%
+  assert.equal(view.products.find(p => p.id === 2).precoFinal, 62); // 40 + 50% + fixed 2
+  assert.equal(view.products.find(p => p.id === 3).precoFinal, 38); // average cost 30 + default 10% + default fixed 5
+  assert.ok(!JSON.stringify(view).includes('precoComprador'));
   assert.ok(!JSON.stringify(view).includes('precoCusto'));
   for (const path of ['/api/cache', '/api/users', '/api/session', '/api/products?limit=1', '/auth/login']) assert.equal((await call(path, { cookie: buyer })).status, 403, path);
 
@@ -113,11 +120,11 @@ test('database login, roles, catalog, users, orders and Olist order creation', a
   assert.equal((await call('/api/orders', { method: 'POST', cookie: admin, body: { items: [{ id: 2, quantity: 1 }] } })).status, 403);
   const order = await call('/api/orders', { method: 'POST', cookie: buyer, body: { items: [{ id: 2, quantity: 3 }, { id: 3, quantity: 1 }], notes: 'Entregar rápido' } });
   assert.equal(order.status, 201, JSON.stringify(order.data));
-  assert.equal(order.data.total, 213);
+  assert.equal(order.data.total, 224);
   assert.equal(order.data.status, 'enviado_olist'); assert.equal(order.data.olistOrderNumber, '321');
   assert.equal(contactCreated.cpfCnpj, '12.345.678/0001-90'); assert.equal(contactCreated.inscricaoEstadual, '123');
   assert.equal(orderSent.idContato, 555);
-  assert.deepEqual(orderSent.itens, [{ produto: { id: 2, tipo: 'P' }, quantidade: 3, valorUnitario: 60 }, { produto: { id: 3, tipo: 'P' }, quantidade: 1, valorUnitario: 33 }]);
+  assert.deepEqual(orderSent.itens, [{ produto: { id: 2, tipo: 'P' }, quantidade: 3, valorUnitario: 62 }, { produto: { id: 3, tipo: 'P' }, quantidade: 1, valorUnitario: 38 }]);
   assert.equal(repo.tables.customers[0].olist_contact_id, 555);
 
   // Admin sees the order with its buyer; the buyer sees only their customer's orders.
@@ -198,6 +205,7 @@ test('opening a product fetches its Olist detail once, saves it and hides cost f
   assert.equal(detail.detalhes.complemento, 'Confortável e leve');
   assert.equal(detail.precos.custoFicha, 38);
   assert.equal(detail.precoComprador, 41.8); // 38 + default 10%
+  assert.equal(detail.precoFinal, 41.8); // no fixed cost in this tenant
   const kid = repo.tables.olist_products.find(p => p.id === 2);
   assert.equal(kid.parent_id, 1);
   await call('/api/products/1/detail', { cookie: admin });
@@ -265,4 +273,60 @@ test('buyer onboarding: confirms profile, saves own Olist app, authenticates wit
   assert.equal((await call('/api/customer/olist', { method: 'DELETE', cookie: buyer })).status, 200);
   assert.equal(repo.tables.customers[0].olist_tokens, null);
   assert.ok(repo.tables.customers[0].olist_app);
+});
+
+test('order from NF-e XML keeps the invoice, stores attachments and admin push subscriptions', async t => {
+  let orderSent = null;
+  const { repo, call, loginAs } = await setup(t, async (url, init) => {
+    if (url.endsWith('/token')) return json({ access_token: 'tok', refresh_token: 'ref', expires_in: 14400 });
+    if (url.includes('/contatos?')) return json({ itens: [], paginacao: { total: 0 } });
+    if (url.endsWith('/contatos') && init.method === 'POST') return json({ id: 77 });
+    if (url.endsWith('/pedidos') && init.method === 'POST') { orderSent = JSON.parse(init.body); return json({ id: 1, numeroPedido: '9' }); }
+    return json({ itens: [] });
+  });
+  const admin = await loginAs('admin', 'senha-admin');
+  await connectOlist(call, admin);
+  assert.equal((await call('/api/cache', { method: 'PUT', cookie: admin, body: { catalog } })).status, 200);
+  repo.tables.customers.push({ id: 'cust-1', tenant_id: TENANT, cnpj: '11222333000181', legal_name: 'CLIENTE LTDA', active: true });
+  repo.tables.app_users.push({ id: 'buyer-1', tenant_id: TENANT, customer_id: 'cust-1', name: 'Comprador', username: 'comprador', password_hash: await hashPassword('senha-buyer'), role: 'buyer', active: true });
+  repo.tables.customers.push({ id: 'cust-2', tenant_id: TENANT, cnpj: '99888777000166', legal_name: 'OUTRO LTDA', active: true });
+  repo.tables.app_users.push({ id: 'buyer-2', tenant_id: TENANT, customer_id: 'cust-2', name: 'Outro', username: 'outro', password_hash: await hashPassword('senha-outro'), role: 'buyer', active: true });
+  const buyer = await loginAs('comprador', 'senha-buyer');
+
+  const key = '35251012345678000190550010000012341000012345';
+  const order = await call('/api/orders', { method: 'POST', cookie: buyer, body: { items: [{ id: 4, quantity: 2 }], source: 'xml', nfe: { key, number: '1234' } } });
+  assert.equal(order.status, 201, JSON.stringify(order.data));
+  assert.ok(orderSent, JSON.stringify(order.data));
+  assert.match(orderSent.observacoesInternas, /NF-e 1234 \(chave 35251012345678000190550010000012341000012345\)/);
+
+  const raw = (cookie, type, body, name, path = `/api/orders/${order.data.id}/files`) => call(path, { method: 'POST', cookie, headers: { 'Content-Type': type, 'X-File-Name': encodeURIComponent(name) }, raw: body });
+  assert.equal((await raw(buyer, 'image/png', Buffer.from('x'), 'a.png')).status, 415);
+  assert.equal((await raw(buyer, 'application/pdf', Buffer.from('not a pdf'), 'a.pdf')).status, 400);
+  const xml = await raw(buyer, 'application/xml', Buffer.from('<?xml version="1.0"?><nfeProc/>'), 'NF 1234.xml');
+  assert.equal(xml.status, 201, JSON.stringify(xml.data));
+  const pdf = await raw(buyer, 'application/pdf', Buffer.from('%PDF-1.4 boleto'), 'boleto/../x.pdf');
+  assert.equal(pdf.status, 201);
+  assert.equal(pdf.data.name, 'boleto_.._x.pdf');
+  const other = await loginAs('outro', 'senha-outro');
+  assert.equal((await raw(other, 'application/pdf', Buffer.from('%PDF-1.4'), 'x.pdf')).status, 404);
+
+  const detail = (await call(`/api/orders/${order.data.id}`, { cookie: admin })).data;
+  assert.equal(detail.source, 'xml'); assert.equal(detail.nfeNumber, '1234'); assert.equal(detail.nfeKey, key);
+  assert.deepEqual(detail.files.map(f => f.kind), ['xml', 'pdf']);
+  const download = await call(`/api/orders/${order.data.id}/files/${pdf.data.id}`, { cookie: admin });
+  assert.equal(download.status, 200); assert.equal(download.data, '%PDF-1.4 boleto');
+  assert.match(download.headers['content-disposition'], /^attachment; filename\*=UTF-8''boleto_.._x.pdf$/);
+  assert.equal((await call(`/api/orders/${order.data.id}/files/${pdf.data.id}`, { cookie: other })).status, 404);
+
+  // Push: only admins subscribe; the VAPID key is created once and stored sealed.
+  assert.equal((await call('/api/push', { cookie: buyer })).status, 403);
+  const keyA = (await call('/api/push', { cookie: admin })).data.publicKey;
+  assert.ok(keyA.length > 60); assert.equal((await call('/api/push', { cookie: admin })).data.publicKey, keyA);
+  assert.ok(!repo.tables.app_secrets[0].value.includes(keyA));
+  assert.equal((await call('/api/push', { method: 'POST', cookie: admin, body: { endpoint: 'http://insecure', keys: { p256dh: 'x', auth: 'y' } } })).status, 400);
+  const sub = { endpoint: 'https://push.example.com/send/abcdefghij', keys: { p256dh: 'B'.repeat(87), auth: 'a'.repeat(22) } };
+  assert.equal((await call('/api/push', { method: 'POST', cookie: admin, body: sub })).status, 200);
+  assert.equal((await call('/api/push', { cookie: admin })).data.devices, 1);
+  const del = await call('/api/push', { method: 'DELETE', cookie: admin, body: { endpoint: sub.endpoint } }); assert.equal(del.status, 200, JSON.stringify(del.data));
+  assert.equal(repo.tables.push_subscriptions.length, 0);
 });

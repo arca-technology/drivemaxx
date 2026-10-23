@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { hashPassword } from './db.mjs';
 
 // ── Catalog mapping between the app (Olist-shaped objects) and olist_products rows ──
@@ -34,10 +35,10 @@ export function catalogFromRows(rows, tenant) {
     if (r.grade) grade.push([Number(r.id), r.grade]);
     if (r.parent_id != null) { const pid = Number(r.parent_id); if (!children.has(pid)) children.set(pid, []); children.get(pid).push(Number(r.id)); }
     if (r.variations_loaded || children.has(Number(r.id))) done.push(Number(r.id));
-    settings.push([Number(r.id), { visible: r.visible !== false, margin: r.margin_percent == null ? null : Number(r.margin_percent) }]);
+    settings.push([Number(r.id), { visible: r.visible !== false, margin: r.margin_percent == null ? null : Number(r.margin_percent), fixed: r.fixed_cost == null ? null : Number(r.fixed_cost) }]);
   }
   for (const pid of children.keys()) if (!done.includes(pid)) done.push(pid);
-  return { v: 1, syncedAt: tenant?.catalog_synced_at || null, savedAt: tenant?.catalog_saved_at || null, stockComplete: true, products, stock, grade, children: [...children], variationsDone: done, settings, defaultMargin: Number(tenant?.default_margin || 0) };
+  return { v: 1, syncedAt: tenant?.catalog_synced_at || null, savedAt: tenant?.catalog_saved_at || null, stockComplete: true, products, stock, grade, children: [...children], variationsDone: done, settings, defaultMargin: Number(tenant?.default_margin || 0), defaultFixedCost: Number(tenant?.default_fixed_cost || 0) };
 }
 
 // Buyer price: cost (or average cost when cost is empty) plus the product margin (or the tenant default).
@@ -47,13 +48,20 @@ export function buyerPrice(row, defaultMargin) {
   const margin = row.margin_percent == null ? Number(defaultMargin || 0) : Number(row.margin_percent);
   return Math.round(cost * (1 + margin / 100) * 100) / 100;
 }
+// Final price the buyer pays: buyer price (cost + margin) plus the product fixed cost (or the tenant default), in R$.
+export function finalPrice(row, tenant) {
+  const base = buyerPrice(row, tenant?.default_margin);
+  if (base == null) return null;
+  const fixed = row.fixed_cost == null ? Number(tenant?.default_fixed_cost || 0) : Number(row.fixed_cost);
+  return Math.round((base + fixed) * 100) / 100;
+}
 
 const digits = value => String(value ?? '').replace(/\D/g, '');
 const formatCnpj = cnpj => cnpj.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5');
 const text = (value, max = 200) => value == null ? null : String(value).trim().slice(0, max) || null;
 const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
 
-export function bmsRoutes({ repo, send, readJson, fault, olist, tenantSession, fetcher, origin }) {
+export function bmsRoutes({ repo, send, readJson, readRaw, fault, olist, tenantSession, fetcher, origin, notify = async () => {} }) {
   const requireAdmin = who => { if (who.role !== 'admin') throw fault(403, 'Acesso restrito ao administrador.'); };
   const sameOrigin = req => { if (req.headers.origin && req.headers.origin !== origin) throw fault(403, 'Origem inválida.'); };
 
@@ -114,7 +122,7 @@ export function bmsRoutes({ repo, send, readJson, fault, olist, tenantSession, f
       }
       const created = await olist(session, '/pedidos', 'o pedido', d => d && d.id, { method: 'POST', body: {
         data: today(), idContato: Number(contactId), situacao: 0, numeroOrdemCompra: `DMX-${order.number}`,
-        observacoes: order.notes || undefined, observacoesInternas: `Pedido DRIVE MAXX #${order.number} — comprador: ${order.app_users?.name || ''}`,
+        observacoes: order.notes || undefined, observacoesInternas: `Pedido DRIVE MAXX #${order.number} — comprador: ${order.app_users?.name || ''}${order.nfe_number ? ` — NF-e ${order.nfe_number}` : ''}${order.nfe_key ? ` (chave ${order.nfe_key})` : ''}`,
         itens: order.order_items.map(i => ({ produto: { id: Number(i.product_id), tipo: 'P' }, quantidade: Number(i.quantity), valorUnitario: Number(i.unit_price) }))
       } });
       return repo.updateOrder(tenantId, orderId, { status: 'enviado_olist', olist_order_id: created.id, olist_order_number: created.numeroPedido == null ? null : String(created.numeroPedido), olist_error: null, olist_synced_at: new Date().toISOString() });
@@ -146,7 +154,7 @@ export function bmsRoutes({ repo, send, readJson, fault, olist, tenantSession, f
         const shown = rows.filter(r => r.visible !== false && r.situation === 'A' && (r.parent_id == null || byId.get(Number(r.parent_id))?.visible !== false));
         const children = new Map();
         shown.forEach(r => { if (r.parent_id != null && byId.has(Number(r.parent_id))) { const pid = Number(r.parent_id); if (!children.has(pid)) children.set(pid, []); children.get(pid).push(Number(r.id)); } });
-        const products = shown.map(r => ({ id: Number(r.id), sku: r.sku, descricao: r.description, situacao: r.situation, tipo: r.type, tipoVariacao: r.variation_type, unidade: r.unit, gtin: r.gtin, imagem: imageOf(r, byId), precoComprador: buyerPrice(r, tenant?.default_margin) }));
+        const products = shown.map(r => ({ id: Number(r.id), sku: r.sku, descricao: r.description, situacao: r.situation, tipo: r.type, tipoVariacao: r.variation_type, unidade: r.unit, gtin: r.gtin, imagem: imageOf(r, byId), precoFinal: finalPrice(r, tenant) }));
         const stock = shown.filter(r => r.stock_available != null).map(r => [Number(r.id), { disponivel: num(r.stock_available) }]);
         return send(res, 200, { products, stock, children: [...children], grade: shown.filter(r => r.grade).map(r => [Number(r.id), r.grade]), savedAt: tenant?.catalog_saved_at }), true;
       }
@@ -193,12 +201,12 @@ export function bmsRoutes({ repo, send, readJson, fault, olist, tenantSession, f
         const parent = row.parent_id != null ? (await repo.productsByIds(tenantId, [Number(row.parent_id)]))[0] : null;
         const image = row.image_url || parent?.image_url || null;
         const images = Array.isArray(row.images) && row.images.length ? row.images : (Array.isArray(parent?.images) ? parent.images : []);
-        const base = { id: pid, sku: row.sku, descricao: row.description, unidade: row.unit, gtin: row.gtin, situacao: row.situation, imagem: image, imagens: images, detalhes: row.details || null, atualizadoEm: row.details_synced_at || null, estoque: { disponivel: num(row.stock_available) }, precoComprador: buyerPrice(row, tenant?.default_margin), aviso: warning };
+        const base = { id: pid, sku: row.sku, descricao: row.description, unidade: row.unit, gtin: row.gtin, situacao: row.situation, imagem: image, imagens: images, detalhes: row.details || null, atualizadoEm: row.details_synced_at || null, estoque: { disponivel: num(row.stock_available) }, precoFinal: finalPrice(row, tenant), aviso: warning };
         if (who.role !== 'admin') {
           const { estoqueMinimo, estoqueMaximo, ...publicDetails } = base.detalhes || {};
           return send(res, 200, { ...base, detalhes: base.detalhes ? publicDetails : null }), true;
         }
-        return send(res, 200, { ...base, precos: { preco: num(row.price), precoPromocional: num(row.promo_price), precoCusto: num(row.cost_price), precoCustoMedio: num(row.avg_cost_price), custoFicha: num(row.detail_cost) }, estoque: { saldo: num(row.stock_balance), reservado: num(row.stock_reserved), disponivel: num(row.stock_available) }, visivel: row.visible !== false, margem: row.margin_percent == null ? null : num(row.margin_percent), margemPadrao: num(tenant?.default_margin) || 0 }), true;
+        return send(res, 200, { ...base, precos: { preco: num(row.price), precoPromocional: num(row.promo_price), precoCusto: num(row.cost_price), precoCustoMedio: num(row.avg_cost_price), custoFicha: num(row.detail_cost) }, estoque: { saldo: num(row.stock_balance), reservado: num(row.stock_reserved), disponivel: num(row.stock_available) }, precoComprador: buyerPrice(row, tenant?.default_margin), visivel: row.visible !== false, margem: row.margin_percent == null ? null : num(row.margin_percent), margemPadrao: num(tenant?.default_margin) || 0, custoFixo: row.fixed_cost == null ? null : num(row.fixed_cost), custoFixoPadrao: num(tenant?.default_fixed_cost) || 0 }), true;
       }
 
       // Product settings (admin): visibility for buyers and margin.
@@ -213,6 +221,10 @@ export function bmsRoutes({ repo, send, readJson, fault, olist, tenantSession, f
           if (body.margin === null || body.margin === '') patch.margin_percent = null;
           else { const m = Number(body.margin); if (!Number.isFinite(m) || m < -100 || m > 10000) throw fault(400, 'Margem inválida.'); patch.margin_percent = Math.round(m * 100) / 100; }
         }
+        if ('fixed' in body) {
+          if (body.fixed === null || body.fixed === '') patch.fixed_cost = null;
+          else { const f = Number(body.fixed); if (!Number.isFinite(f) || f < 0 || f > 1000000) throw fault(400, 'Custo fixo inválido.'); patch.fixed_cost = Math.round(f * 100) / 100; }
+        }
         if (!Object.keys(patch).length) throw fault(400, 'Nada para alterar.');
         await repo.updateProducts(tenantId, ids, patch);
         return send(res, 200, { ok: true, updated: ids.length }), true;
@@ -220,9 +232,11 @@ export function bmsRoutes({ repo, send, readJson, fault, olist, tenantSession, f
       if (method === 'PATCH' && path === '/api/tenant') {
         requireAdmin(who); sameOrigin(req);
         const body = await readJson(req);
-        const m = Number(body.defaultMargin);
-        if (!Number.isFinite(m) || m < -100 || m > 10000) throw fault(400, 'Margem inválida.');
-        await repo.updateTenant(tenantId, { default_margin: Math.round(m * 100) / 100 });
+        const patch = {};
+        if (body.defaultMargin !== undefined) { const m = Number(body.defaultMargin); if (!Number.isFinite(m) || m < -100 || m > 10000) throw fault(400, 'Margem inválida.'); patch.default_margin = Math.round(m * 100) / 100; }
+        if (body.defaultFixedCost !== undefined) { const f = Number(body.defaultFixedCost); if (!Number.isFinite(f) || f < 0 || f > 1000000) throw fault(400, 'Custo fixo inválido.'); patch.default_fixed_cost = Math.round(f * 100) / 100; }
+        if (!Object.keys(patch).length) throw fault(400, 'Nada para alterar.');
+        await repo.updateTenant(tenantId, patch);
         return send(res, 200, { ok: true }), true;
       }
 
@@ -280,7 +294,8 @@ export function bmsRoutes({ repo, send, readJson, fault, olist, tenantSession, f
       if (method === 'GET' && orderMatch) {
         const order = await repo.getOrder(tenantId, orderMatch[1]);
         if (!order || (who.role !== 'admin' && order.customer_id !== who.customerId)) throw fault(404, 'Pedido não encontrado.');
-        return send(res, 200, { id: order.id, number: order.number, status: order.status, total: num(order.total), notes: order.notes, createdAt: order.created_at, olistOrderNumber: order.olist_order_number, olistError: order.olist_error, customer: { cnpj: order.customers?.cnpj, legal_name: order.customers?.legal_name, trade_name: order.customers?.trade_name }, buyer: order.app_users, items: (order.order_items || []).map(i => ({ productId: Number(i.product_id), sku: i.sku, description: i.description, quantity: num(i.quantity), unitPrice: num(i.unit_price), total: num(i.total) })) }), true;
+        const files = await repo.listOrderFiles(tenantId, order.id);
+        return send(res, 200, { id: order.id, number: order.number, status: order.status, total: num(order.total), notes: order.notes, source: order.source || 'manual', nfeNumber: order.nfe_number || null, nfeKey: order.nfe_key || null, files: files.map(f => ({ id: f.id, kind: f.kind, name: f.name, size: f.size, createdAt: f.created_at })), createdAt: order.created_at, olistOrderNumber: order.olist_order_number, olistError: order.olist_error, customer: { cnpj: order.customers?.cnpj, legal_name: order.customers?.legal_name, trade_name: order.customers?.trade_name }, buyer: order.app_users, items: (order.order_items || []).map(i => ({ productId: Number(i.product_id), sku: i.sku, description: i.description, quantity: num(i.quantity), unitPrice: num(i.unit_price), total: num(i.total) })) }), true;
       }
       if (method === 'POST' && path === '/api/orders') {
         sameOrigin(req);
@@ -303,14 +318,50 @@ export function bmsRoutes({ repo, send, readJson, fault, olist, tenantSession, f
           const parent = row?.parent_id != null ? byId.get(Number(row.parent_id)) : null;
           if (!row || !row.in_catalog || row.visible === false || row.situation !== 'A' || parent?.visible === false) throw fault(400, `Produto ${pid} indisponível.`);
           if (parents.has(pid)) throw fault(400, `Escolha as variações de "${row.description}".`);
-          const price = buyerPrice(row, tenant?.default_margin);
+          const price = finalPrice(row, tenant);
           if (!price) throw fault(400, `"${row.description}" está sem preço definido.`);
           items.push({ tenant_id: tenantId, product_id: pid, sku: row.sku, description: row.description, quantity: qty, unit_price: price, total: Math.round(price * qty * 100) / 100 });
         }
         const total = Math.round(items.reduce((s, i) => s + i.total, 0) * 100) / 100;
-        const order = await repo.createOrder({ tenant_id: tenantId, customer_id: customer.id, user_id: who.id, status: 'novo', total, notes: text(body.notes, 1000) }, items);
+        // Orders built from an NF-e XML keep the invoice number and key.
+        const nfeKey = digits(body.nfe?.key), nfe = body.source === 'xml' ? { source: 'xml', nfe_key: nfeKey.length === 44 ? nfeKey : null, nfe_number: text(digits(body.nfe?.number), 20) } : {};
+        const order = await repo.createOrder({ tenant_id: tenantId, customer_id: customer.id, user_id: who.id, status: 'novo', total, notes: text(body.notes, 1000), ...nfe }, items);
         const sent = await sendOrderToOlist(tenantId, order.id);
+        await notify(tenantId, { title: `Novo pedido #${order.number}`, body: `${customer.trade_name || customer.legal_name} · ${total.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}${nfe.source ? ' · via XML' : ''}${sent?.olist_error ? ' · erro ao enviar para a Olist' : ''}`, url: '/?view=orders', tag: `order-${order.id}` });
         return send(res, 201, { id: order.id, number: order.number, total, status: sent?.status || order.status, olistOrderNumber: sent?.olist_order_number || null, olistError: sent?.olist_error || null }), true;
+      }
+      // Order files: the buyer attaches the NF-e XML and PDFs; admin and the buyer can download them.
+      const filesMatch = path.match(/^\/api\/orders\/([\w-]+)\/files(?:\/([\w-]+))?$/);
+      if (filesMatch) {
+        const order = await repo.getOrder(tenantId, filesMatch[1]);
+        if (!order || (who.role !== 'admin' && order.customer_id !== who.customerId)) throw fault(404, 'Pedido não encontrado.');
+        if (method === 'POST' && !filesMatch[2]) {
+          sameOrigin(req);
+          const type = String(req.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
+          const kind = type === 'application/pdf' ? 'pdf' : ['application/xml', 'text/xml'].includes(type) ? 'xml' : null;
+          if (!kind) throw fault(415, 'Envie arquivos PDF ou o XML da nota.');
+          if ((await repo.listOrderFiles(tenantId, order.id)).length >= 20) throw fault(400, 'Limite de 20 arquivos por pedido.');
+          const data = await readRaw(req, 4 * 1024 * 1024);
+          if (!data.length) throw fault(400, 'Arquivo vazio.');
+          const head = data.subarray(0, 64).toString('utf8').replace(/^\uFEFF/, '').trimStart();
+          if (kind === 'pdf' ? !head.startsWith('%PDF') : !head.startsWith('<')) throw fault(400, kind === 'pdf' ? 'O arquivo não é um PDF válido.' : 'O arquivo não é um XML válido.');
+          let name = 'arquivo';
+          try { name = decodeURIComponent(String(req.headers['x-file-name'] || '')); } catch { /* keep default */ }
+          name = name.replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').trim().slice(0, 120) || `arquivo.${kind}`;
+          const storagePath = `${tenantId}/${order.id}/${randomUUID()}.${kind}`;
+          await repo.putObject(storagePath, data, kind === 'pdf' ? 'application/pdf' : 'application/xml');
+          const file = await repo.addOrderFile({ tenant_id: tenantId, order_id: order.id, kind, name, size: data.length, content_type: kind === 'pdf' ? 'application/pdf' : 'application/xml', storage_path: storagePath });
+          return send(res, 201, { id: file.id, kind, name, size: data.length }), true;
+        }
+        if (method === 'GET' && filesMatch[2]) {
+          const file = await repo.getOrderFile(tenantId, order.id, filesMatch[2]);
+          if (!file) throw fault(404, 'Arquivo não encontrado.');
+          const data = await repo.getObject(file.storage_path);
+          res.writeHead(200, { 'Content-Type': file.content_type, 'Content-Length': data.length, 'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(file.name)}`, 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff' });
+          res.end(data);
+          return true;
+        }
+        throw fault(405, 'Método não permitido.');
       }
       const resendMatch = path.match(/^\/api\/orders\/([\w-]+)\/resend$/);
       if (method === 'POST' && resendMatch) {
