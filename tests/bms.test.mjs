@@ -178,7 +178,8 @@ test('stock webhook updates products by tenant token and cron refreshes Olist to
   const row = repo.tables.olist_products.find(p => p.id === 2);
   assert.equal(row.stock_balance, 11); assert.equal(row.stock_available, 10);
   assert.equal((await call('/api/cron/olist-refresh')).status, 401);
-  const cron = await call('/api/cron/olist-refresh', { headers: { 'User-Agent': 'vercel-cron/1.0' } });
+  // Vercel Cron calls the *.vercel.app host: it must run there, not be redirected to the custom domain.
+  const cron = await call('/api/cron/olist-refresh', { headers: { 'User-Agent': 'vercel-cron/1.0', Host: 'drivemaxx.vercel.app' } });
   assert.equal(cron.data.refreshed, 1); assert.equal(refreshes, 1);
 });
 test('login page assets load without a session and the form never sends credentials in the URL', async t => {

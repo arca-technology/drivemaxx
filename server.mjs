@@ -84,7 +84,10 @@ export function createApp(config, fetcher = fetch) {
       response = await fetcher(TOKEN, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ client_id: creds.clientId, client_secret: creds.clientSecret, ...fields }), signal: AbortSignal.timeout(25000) });
     } catch { throw fault(502, 'Não foi possível conectar à Olist. Verifique a conexão e tente novamente.'); }
     const data = await response.json().catch(() => ({}));
-    if (!response.ok || !data.access_token) throw fault(response.status === 400 || response.status === 401 ? 401 : 502, 'A Olist não aceitou a autenticação. Confira as credenciais e a URL de redirecionamento e conecte novamente.');
+    if (!response.ok || !data.access_token) {
+      console.warn('[olist] token', fields.grant_type, response.status, data.error || '', String(data.error_description || '').slice(0, 160));
+      throw fault(response.status === 400 || response.status === 401 ? 401 : 502, 'A Olist não aceitou a autenticação. Confira as credenciais e a URL de redirecionamento e conecte novamente.');
+    }
     return data;
   }
   function saveTokens(session, data) {
@@ -95,7 +98,7 @@ export function createApp(config, fetcher = fetch) {
     if (!session.tokens?.refresh_token) { session.tokens = null; throw fault(401, 'Sua sessão expirou. Conecte sua conta Olist novamente.'); }
     if (!session.refreshing) session.refreshing = tokenRequest({ grant_type: 'refresh_token', refresh_token: session.tokens.refresh_token }, session.creds)
       .then(async data => { saveTokens(session, data); await session.persist?.(session.tokens); })
-      .catch(async error => { if (error.status === 401) { session.tokens = null; await session.persist?.(null); } throw error; })
+      .catch(async error => { if (error.status === 401) { session.tokens = null; await session.persist?.(null); await session.lost?.(); } throw error; })
       .finally(() => { session.refreshing = null; });
     await session.refreshing;
   }
@@ -104,6 +107,8 @@ export function createApp(config, fetcher = fetch) {
     const session = { tenantId };
     session.reload = async () => { const tenant = await repo.getTenant(tenantId); session.tokens = tenant?.olist_tokens ? tokenBox.open(tenant.olist_tokens) : null; };
     session.persist = async tokens => repo.updateTenant(tenantId, { olist_tokens: tokens ? tokenBox.seal(tokens) : null, ...(tokens ? {} : { olist_connected_at: null }) });
+    // The Olist refused to renew the connection: warn the admins on their devices.
+    session.lost = () => push.notifyAdmins(tenantId, { title: 'Olist desconectada', body: 'A Olist encerrou a conexão. Abra Integrações e autentique novamente para manter estoque e pedidos funcionando.', url: '/', tag: 'olist-lost', sticky: true });
     await session.reload();
     return session;
   }
@@ -178,9 +183,11 @@ export function createApp(config, fetcher = fetch) {
       const isLocal = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
       if (!isLocal && url.origin !== origin) throw fault(400, 'Host inválido.');
       const localHosts = [`localhost:${config.port}`, `127.0.0.1:${config.port}`];
-      if (req.headers.host && ![new URL(origin).host, ...localHosts, ...(config.aliases || [])].includes(req.headers.host)) throw fault(400, 'Host inválido.');
+      // Vercel Cron calls the project's *.vercel.app address and does not follow redirects: it must not be bounced to the custom domain.
+      const cron = url.pathname.startsWith('/api/cron/');
+      if (!cron && req.headers.host && ![new URL(origin).host, ...localHosts, ...(config.aliases || [])].includes(req.headers.host)) throw fault(400, 'Host inválido.');
       // Login and callback must use the same HTTPS hostname so the session cookie returns.
-      if (secure && req.headers.host !== new URL(origin).host) return redirect(res, `${origin}${url.pathname}${url.search}`);
+      if (!cron && secure && req.headers.host !== new URL(origin).host) return redirect(res, `${origin}${url.pathname}${url.search}`);
       const sid = (req.headers.cookie || '').split(';').map(v => v.trim()).find(v => v.startsWith('drive_session='))?.slice('drive_session='.length);
       const session = sessions.get(sid);
       if (session) session.lastSeen = Date.now();
@@ -227,6 +234,7 @@ export function createApp(config, fetcher = fetch) {
           customerOlist.forceRefresh = true;
           try { await refresh(customerOlist); refreshed++; } catch (error) { console.warn('[cron] refresh cliente', customer.id, error.message); }
         }
+        console.log('[cron] olist-refresh', JSON.stringify({ refreshed }));
         return send(res, 200, { ok: true, refreshed });
       }
 
