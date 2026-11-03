@@ -103,6 +103,8 @@ export function supabaseRepo({ url, key, fetcher = fetch }) {
     async updateOrder(tenantId, id, patch) { return (await rest('PATCH', `orders?tenant_id=${eq(tenantId)}&id=${eq(id)}`, { body: patch, prefer: 'return=representation' }))[0] || null; },
     async listOrders(tenantId, { customerId } = {}) { return rest('GET', `orders?select=*,customers(id,cnpj,legal_name,trade_name),app_users(id,name,username),order_items(id)&tenant_id=${eq(tenantId)}${customerId ? `&customer_id=${eq(customerId)}` : ''}&order=created_at.desc&limit=500`); },
     async getOrder(tenantId, id) { return (await rest('GET', `orders?select=*,customers(*),app_users(id,name,username),order_items(*)&tenant_id=${eq(tenantId)}&id=${eq(id)}&limit=1`))[0] || null; },
+    // Products the buyers can see (and buy) whose stock is older than `beforeIso`, oldest first.
+    async stockSyncTargets(tenantId, beforeIso, limit) { return rest('POST', 'rpc/stock_sync_targets', { body: { p_tenant: tenantId, p_before: beforeIso, p_limit: limit } }); },
     async listOrdersSince(tenantId, iso) { return rest('GET', `orders?select=id,number,total,status,created_at,customers(legal_name,trade_name)&tenant_id=${eq(tenantId)}&created_at=gt.${encodeURIComponent(iso)}&order=created_at.desc&limit=50`); },
     // Order files: metadata in the table, bytes in the private "order-files" Storage bucket.
     async listOrderFiles(tenantId, orderId) { return rest('GET', `order_files?select=id,kind,name,size,content_type,created_at&tenant_id=${eq(tenantId)}&order_id=${eq(orderId)}&order=created_at.asc`); },
@@ -186,6 +188,12 @@ export function memoryRepo(seed = {}) {
     async getOrder(tenantId, id) {
       const o = tables.orders.find(x => x.tenant_id === tenantId && x.id === id);
       return o ? { ...o, customers: tables.customers.find(c => c.id === o.customer_id), app_users: userOf(o.user_id), order_items: tables.order_items.filter(i => i.order_id === o.id) } : null;
+    },
+    async stockSyncTargets(tenantId, beforeIso, limit) {
+      const rows = tables.olist_products.filter(p => p.tenant_id === tenantId && p.in_catalog);
+      const byId = new Map(rows.map(p => [p.id, p])), parents = new Set(rows.filter(p => p.parent_id != null).map(p => p.parent_id));
+      return rows.filter(p => p.visible !== false && p.situation === 'A' && !parents.has(p.id) && (p.parent_id == null || byId.get(p.parent_id)?.visible !== false) && (!p.stock_updated_at || p.stock_updated_at < beforeIso))
+        .sort((a, b) => String(a.stock_updated_at || '').localeCompare(String(b.stock_updated_at || ''))).slice(0, limit).map(p => ({ id: p.id, stock_reserved: p.stock_reserved ?? null }));
     },
     async listOrdersSince(tenantId, iso) { return tables.orders.filter(o => o.tenant_id === tenantId && o.created_at > iso).sort((a, b) => b.created_at.localeCompare(a.created_at)).map(o => ({ ...o, customers: customerOf(o.customer_id) })); },
     async listOrderFiles(tenantId, orderId) { return tables.order_files.filter(f => f.tenant_id === tenantId && f.order_id === orderId).map(({ storage_path, tenant_id, order_id, ...f }) => f); },

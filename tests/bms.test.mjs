@@ -344,3 +344,33 @@ test('order from NF-e XML keeps the invoice, stores attachments and admin push s
   const del = await call('/api/push', { method: 'DELETE', cookie: admin, body: { endpoint: sub.endpoint } }); assert.equal(del.status, 200, JSON.stringify(del.data));
   assert.equal(repo.tables.push_subscriptions.length, 0);
 });
+
+test('stock sync refreshes only products buyers can see, oldest first, with a DB token', async t => {
+  const asked = [];
+  const { repo, call, loginAs } = await setup(t, async (url) => {
+    if (url.endsWith('/token')) return json({ access_token: 'tok', refresh_token: 'ref', expires_in: 14400 });
+    const m = url.match(/\/estoque\/(\d+)$/);
+    if (m) { asked.push(Number(m[1])); return json({ id: Number(m[1]), saldo: 50 + Number(m[1]), reservado: 2, disponivel: 48 + Number(m[1]) }); }
+    return json({});
+  });
+  const admin = await loginAs('admin', 'senha-admin');
+  await connectOlist(call, admin);
+  await call('/api/cache', { method: 'PUT', cookie: admin, body: { catalog } });
+  // Product 3 (a variation) hidden; product 4 visible; parent 1 never asked (its stock is the sum of its variations).
+  repo.tables.olist_products.find(p => p.id === 3).visible = false;
+  assert.equal((await call('/api/cron/stock-sync')).status, 401);
+  assert.equal((await call('/api/cron/stock-sync', { headers: { Authorization: 'Bearer errado' } })).status, 401);
+  repo.tables.app_secrets.push({ key: 'cron_token', value: 'segredo-do-agendador' });
+  const old = new Date(Date.now() - 2 * 3600000).toISOString();
+  repo.tables.olist_products.forEach(p => { p.stock_updated_at = old; });
+  const run = await call('/api/cron/stock-sync', { headers: { Authorization: 'Bearer segredo-do-agendador', Host: 'drivemaxx.vercel.app' } });
+  assert.equal(run.status, 200, JSON.stringify(run.data));
+  assert.deepEqual(asked.sort(), [2, 4]);
+  assert.equal(run.data.result[0].atualizados, 2);
+  const row = repo.tables.olist_products.find(p => p.id === 4);
+  assert.equal(row.stock_balance, 54); assert.equal(row.stock_available, 52);
+  // Fresh stock is not fetched again within the hour.
+  asked.length = 0;
+  await call('/api/cron/stock-sync', { headers: { 'User-Agent': 'vercel-cron/1.0' } });
+  assert.deepEqual(asked, []);
+});

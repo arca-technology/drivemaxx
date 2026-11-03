@@ -223,6 +223,40 @@ export function createApp(config, fetcher = fetch) {
         console.log('[webhook] estoque', JSON.stringify({ tipo: payload.tipo || null, cnpj: fromCnpj || null, outraConta: foreign, produtos: items.length, ids: items.slice(0, 5).map(i => i.id), atualizados: applied }));
         return send(res, 200, { status: 'processado' });
       }
+      // Scheduled stock refresh of the products buyers can see: each run updates those whose stock is older than ~1 hour,
+      // within a time budget, so the list keeps up even when it grows (runs every 15 minutes).
+      if (req.method === 'GET' && url.pathname === '/api/cron/stock-sync') {
+        const bearer = (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+        const dbToken = repo && bearer ? await repo.getSecret('cron_token') : null;
+        const allowed = /vercel-cron/i.test(req.headers['user-agent'] || '') || (config.cronSecret && same(bearer, config.cronSecret)) || (dbToken && same(bearer, dbToken));
+        if (!allowed) throw fault(401, 'Não autorizado.');
+        if (!repo) return send(res, 200, { ok: true, updated: 0 });
+        const started = Date.now(), budget = Number(url.searchParams.get('budget')) > 0 ? Math.min(50000, Number(url.searchParams.get('budget'))) : 45000;
+        const before = new Date(Date.now() - 55 * 60000).toISOString();
+        const result = [];
+        for (const tenant of await repo.listTenants()) {
+          if (!tenant.olist_tokens) continue;
+          const session = await tenantSession(tenant.id);
+          const targets = await repo.stockSyncTargets(tenant.id, before, 600);
+          let updated = 0, missing = 0, stopped = null;
+          for (const row of targets) {
+            if (Date.now() - started > budget) { stopped = 'tempo'; break; }
+            try {
+              const data = await olist(session, `/estoque/${row.id}`, '/estoque', d => typeof d === 'object');
+              const saldo = Number(data.saldo), reservado = data.reservado != null ? Number(data.reservado) : Number(row.stock_reserved) || 0;
+              const disponivel = data.disponivel != null ? Number(data.disponivel) : saldo - reservado;
+              await repo.updateProducts(tenant.id, [Number(row.id)], { stock_balance: Number.isFinite(saldo) ? saldo : null, stock_reserved: Number.isFinite(reservado) ? reservado : null, stock_available: Number.isFinite(disponivel) ? disponivel : null, stock_updated_at: new Date().toISOString() });
+              updated++;
+            } catch (error) {
+              if (error.status === 404) { missing++; await repo.updateProducts(tenant.id, [Number(row.id)], { stock_updated_at: new Date().toISOString() }); continue; }
+              stopped = error.status === 429 ? 'limite' : error.message; break;
+            }
+          }
+          result.push({ tenant: tenant.id, pendentes: targets.length, atualizados: updated, naoEncontrados: missing, interrompido: stopped });
+        }
+        console.log('[cron] stock-sync', JSON.stringify({ ms: Date.now() - started, result }));
+        return send(res, 200, { ok: true, result });
+      }
       // Scheduled renewal of every tenant's Olist token (refresh tokens expire after one day).
       if (req.method === 'GET' && url.pathname === '/api/cron/olist-refresh') {
         if (config.cronSecret ? req.headers.authorization !== `Bearer ${config.cronSecret}` : !/vercel-cron/i.test(req.headers['user-agent'] || '')) throw fault(401, 'Não autorizado.');
