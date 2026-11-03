@@ -137,11 +137,14 @@ export function bmsRoutes({ repo, send, readJson, readRaw, fault, olist, tenantS
       const latest = new Map(items.map(i => [Number(i.id), i.saldo]));
       const rows = await repo.productsByIds(tenantId, [...latest.keys()]);
       const now = new Date().toISOString();
+      let updated = 0;
       for (const row of rows) {
         const saldo = num(latest.get(Number(row.id)));
         if (saldo == null) continue;
         await repo.updateProducts(tenantId, [Number(row.id)], { stock_balance: saldo, stock_available: saldo - (num(row.stock_reserved) || 0), stock_updated_at: now });
+        updated++;
       }
+      return updated;
     },
     async handle(req, res, url, who) {
       const path = url.pathname, method = req.method, tenantId = who.tenantId;

@@ -211,11 +211,16 @@ export function createApp(config, fetcher = fetch) {
           Object.values(node).forEach(value => { if (value && typeof value === 'object') collect(value); });
         };
         collect(payload);
-        console.log('[webhook] estoque', JSON.stringify({ keys: Object.keys(payload).slice(0, 10), produtos: items.length }));
-        if (items.length) {
-          if (tenant) await bms.applyStockWebhook(tenant.id, items.slice(0, 5000));
+        // Events from another Olist account (a webhook left registered there) are ignored.
+        const digitsOnly = v => String(v || '').replace(/\D/g, '');
+        const fromCnpj = digitsOnly(payload.cnpj), tenantCnpj = digitsOnly(tenant?.olist_company?.cpfCnpj);
+        const foreign = !!(tenant && fromCnpj && tenantCnpj && fromCnpj !== tenantCnpj);
+        let applied = null;
+        if (items.length && !foreign) {
+          if (tenant) applied = await bms.applyStockWebhook(tenant.id, items.slice(0, 5000));
           else await storage.put(`events/${Date.now()}-${randomBytes(6).toString('hex')}.bin`, { receivedAt: new Date().toISOString(), items: items.slice(0, 5000) });
         }
+        console.log('[webhook] estoque', JSON.stringify({ tipo: payload.tipo || null, cnpj: fromCnpj || null, outraConta: foreign, produtos: items.length, ids: items.slice(0, 5).map(i => i.id), atualizados: applied }));
         return send(res, 200, { status: 'processado' });
       }
       // Scheduled renewal of every tenant's Olist token (refresh tokens expire after one day).

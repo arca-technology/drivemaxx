@@ -173,6 +173,10 @@ test('stock webhook updates products by tenant token and cron refreshes Olist to
   await connectOlist(call, admin);
   await call('/api/cache', { method: 'PUT', cookie: admin, body: { catalog } });
   assert.equal((await call('/api/webhooks/estoque?token=errado', { method: 'POST', body: {} })).status, 401);
+  // An event from another Olist account (different CNPJ) is ignored.
+  repo.tables.tenants[0].olist_company = { cpfCnpj: '23.267.430/0001-70' };
+  assert.equal((await call('/api/webhooks/estoque?token=hook', { method: 'POST', body: { cnpj: '49299621000107', tipo: 'estoque', dados: { idProduto: 2, saldo: 99 } } })).status, 200);
+  assert.notEqual(repo.tables.olist_products.find(p => p.id === 2).stock_balance, 99);
   const hook = await call('/api/webhooks/estoque?token=hook', { method: 'POST', body: { produtos: [{ id: 2, sku: 'PAI-37', saldo: 11 }] } });
   assert.deepEqual(hook.data, { status: 'processado' });
   const row = repo.tables.olist_products.find(p => p.id === 2);

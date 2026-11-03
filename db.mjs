@@ -72,7 +72,7 @@ export function supabaseRepo({ url, key, fetcher = fetch }) {
     async getTenant(id) { return (await rest('GET', `tenants?select=*&id=${eq(id)}&limit=1`))[0] || null; },
     async listTenants() { return rest('GET', 'tenants?select=id,olist_tokens'); },
     async listConnectedCustomers() { return rest('GET', 'customers?select=id,tenant_id&olist_tokens=not.is.null'); },
-    async tenantByWebhook(token) { return (await rest('GET', `tenants?select=id,webhook_token&webhook_token=${eq(token)}&limit=1`))[0] || null; },
+    async tenantByWebhook(token) { return (await rest('GET', `tenants?select=id,webhook_token,olist_company&webhook_token=${eq(token)}&limit=1`))[0] || null; },
     async updateTenant(id, patch) { await rest('PATCH', `tenants?id=${eq(id)}`, { body: patch, prefer: 'return=minimal' }); },
     async listCustomers(tenantId) { return rest('GET', `customers?select=*&tenant_id=${eq(tenantId)}&order=legal_name.asc`); },
     async getCustomer(tenantId, id) { return (await rest('GET', `customers?select=*&tenant_id=${eq(tenantId)}&id=${eq(id)}&limit=1`))[0] || null; },
