@@ -241,6 +241,8 @@ export function createApp(config, fetcher = fetch) {
           let updated = 0, missing = 0, stopped = null;
           for (const row of targets) {
             if (Date.now() - started > budget) { stopped = 'tempo'; break; }
+            // Paced (~2 per second) so the sync never uses up the Olist quota that orders and the admin need.
+            const pace = Date.now(); if (updated + missing) await new Promise(done => setTimeout(done, Math.max(0, 450 - (Date.now() - pace))));
             try {
               const data = await olist(session, `/estoque/${row.id}`, '/estoque', d => typeof d === 'object');
               const saldo = Number(data.saldo), reservado = data.reservado != null ? Number(data.reservado) : Number(row.stock_reserved) || 0;
