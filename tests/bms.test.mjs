@@ -111,6 +111,9 @@ test('database login, roles, catalog, users, orders and Olist order creation', a
   assert.equal(view.products.find(p => p.id === 2).precoFinal, 62); // 40 + 50% + fixed 2
   assert.equal(view.products.find(p => p.id === 3).precoFinal, 38); // average cost 30 + default 10% + default fixed 5
   assert.ok(!JSON.stringify(view).includes('precoComprador'));
+  // Buyers see one unit less than the Olist stock (safety margin), never below zero.
+  const stockOf = id => new Map(view.stock).get(id)?.disponivel;
+  assert.equal(stockOf(2), 3); assert.equal(stockOf(3), 1);
   assert.ok(!JSON.stringify(view).includes('precoCusto'));
   for (const path of ['/api/cache', '/api/users', '/api/session', '/api/products?limit=1', '/auth/login']) assert.equal((await call(path, { cookie: buyer })).status, 403, path);
 

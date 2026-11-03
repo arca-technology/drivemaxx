@@ -49,6 +49,9 @@ export function buyerPrice(row, defaultMargin) {
   return Math.round(cost * (1 + margin / 100) * 100) / 100;
 }
 // Final price the buyer pays: buyer price (cost + margin) plus the product fixed cost (or the tenant default), in R$.
+// Buyers always see one unit less than the Olist stock, as a safety margin (never below zero).
+export const STOCK_RESERVE = 1;
+const buyerStock = value => value == null ? null : Math.max(0, num(value) - STOCK_RESERVE);
 export function finalPrice(row, tenant) {
   const base = buyerPrice(row, tenant?.default_margin);
   if (base == null) return null;
@@ -158,7 +161,7 @@ export function bmsRoutes({ repo, send, readJson, readRaw, fault, olist, tenantS
         const children = new Map();
         shown.forEach(r => { if (r.parent_id != null && byId.has(Number(r.parent_id))) { const pid = Number(r.parent_id); if (!children.has(pid)) children.set(pid, []); children.get(pid).push(Number(r.id)); } });
         const products = shown.map(r => ({ id: Number(r.id), sku: r.sku, descricao: r.description, situacao: r.situation, tipo: r.type, tipoVariacao: r.variation_type, unidade: r.unit, gtin: r.gtin, imagem: imageOf(r, byId), precoFinal: finalPrice(r, tenant) }));
-        const stock = shown.filter(r => r.stock_available != null).map(r => [Number(r.id), { disponivel: num(r.stock_available) }]);
+        const stock = shown.filter(r => r.stock_available != null).map(r => [Number(r.id), { disponivel: buyerStock(r.stock_available) }]);
         return send(res, 200, { products, stock, children: [...children], grade: shown.filter(r => r.grade).map(r => [Number(r.id), r.grade]), savedAt: tenant?.catalog_saved_at }), true;
       }
 
@@ -204,7 +207,7 @@ export function bmsRoutes({ repo, send, readJson, readRaw, fault, olist, tenantS
         const parent = row.parent_id != null ? (await repo.productsByIds(tenantId, [Number(row.parent_id)]))[0] : null;
         const image = row.image_url || parent?.image_url || null;
         const images = Array.isArray(row.images) && row.images.length ? row.images : (Array.isArray(parent?.images) ? parent.images : []);
-        const base = { id: pid, sku: row.sku, descricao: row.description, unidade: row.unit, gtin: row.gtin, situacao: row.situation, imagem: image, imagens: images, detalhes: row.details || null, atualizadoEm: row.details_synced_at || null, estoque: { disponivel: num(row.stock_available) }, precoFinal: finalPrice(row, tenant), aviso: warning };
+        const base = { id: pid, sku: row.sku, descricao: row.description, unidade: row.unit, gtin: row.gtin, situacao: row.situation, imagem: image, imagens: images, detalhes: row.details || null, atualizadoEm: row.details_synced_at || null, estoque: { disponivel: who.role === 'admin' ? num(row.stock_available) : buyerStock(row.stock_available) }, precoFinal: finalPrice(row, tenant), aviso: warning };
         if (who.role !== 'admin') {
           const { estoqueMinimo, estoqueMaximo, ...publicDetails } = base.detalhes || {};
           return send(res, 200, { ...base, detalhes: base.detalhes ? publicDetails : null }), true;
